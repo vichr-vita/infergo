@@ -84,13 +84,13 @@ type Outputs struct {
 Add a generation directive in that package:
 
 ```go
-//go:generate go run github.com/vichr-vita/infergo/cmd/infergen -rules rules.go -inputs Inputs -outputs Outputs
+//go:generate go run github.com/vichr-vita/infergo/cmd/infergen --rules rules.go --inputs Inputs --outputs Outputs
 ```
 
 The package must depend on this module. Run `go generate` after changing rule
 declarations or struct mappings. The default output is `zz_infergo_gen.go`;
-set `-out` to choose another file in the same directory. Multiple rule files
-can be selected with `-rules rates.go,awards.go`.
+set `--out` to choose another file in the same directory. Multiple rule files
+can be selected with `--rules rates.go,awards.go` or repeated `--rules` flags.
 
 The generator loads the package using the active Go build configuration. It
 validates all selected rules and emits only those needed for the output struct.
@@ -98,6 +98,36 @@ Unexported functions and methods remain ordinary helpers. Rule files, contracts,
 and helpers must type-check without the generated evaluator, so generation also
 works when its output is absent or stale. `Evaluate` and `_infergoPlan` are
 reserved for generated declarations. One evaluator is supported per package.
+
+## Configure the generator
+
+The generator uses [Cobra](https://github.com/spf13/cobra) for its CLI and
+[Viper](https://github.com/spf13/viper) for configuration. Flags use two dashes;
+replace older `-rules`, `-inputs`, `-outputs`, and `-out` spellings with
+`--rules`, `--inputs`, `--outputs`, and `--out`.
+
+Place an optional `infergen.yaml`, `infergen.toml`, or `infergen.json` in the
+ruleset directory, or select a file with `--config path/to/config.yaml`:
+
+```yaml
+rules:
+  - rates.go
+  - awards.go
+inputs: Inputs
+outputs: Outputs
+out: zz_infergo_gen.go
+```
+
+Rule and output paths are relative to the current ruleset directory, even when
+the config file lives elsewhere. Missing explicitly selected files and malformed
+configuration return errors.
+
+Environment variables use the `INFERGEN_` prefix: `INFERGEN_RULES`,
+`INFERGEN_INPUTS`, `INFERGEN_OUTPUTS`, `INFERGEN_OUT`, and `INFERGEN_CONFIG`.
+Use a comma-separated list for `INFERGEN_RULES`, such as `rates.go,awards.go`.
+Explicit flags override environment variables, which override config files,
+which override the defaults shown above. `rules` has no default and must be
+provided by one of these sources. Run `infergen --help` to see the flags.
 
 ## Execution rules
 

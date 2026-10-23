@@ -1,6 +1,6 @@
 package bonus
 
-//go:generate go run ../../cmd/infergen -rules bonus.go -inputs Inputs -outputs Outputs
+//go:generate go run ../../cmd/infergen --rules bonus.go --inputs Inputs --outputs Outputs
 
 // Inputs contains the external facts for one employee's bonus calculation.
 type Inputs struct {
