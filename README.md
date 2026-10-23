@@ -131,3 +131,11 @@ Open the file in a browser to explore dependencies, inspect fact values and Go
 source, and switch scenarios. Generated rulesets expose `EvaluateTrace` for
 diagnostic snapshots and `ExportHTML` for offline viewers. See the
 [visualization guide](docs/visualization.md) for custom exports and API behavior.
+
+## License
+
+Copyright 2026 Vít Chrubasík.
+
+Infergo is licensed under the [Apache License 2.0](LICENSE). The viewer includes
+code adapted from Inferrum and third-party layout dependencies. Their license
+notices are retained in the viewer sources and generated bundle.
