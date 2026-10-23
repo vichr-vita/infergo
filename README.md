@@ -1,22 +1,44 @@
 # Infergo
 
 Infergo generates a typed Go evaluator from plain rule functions. Parameter and
-result names connect facts into a directed acyclic graph. The evaluator runs
-sequentially or with bounded concurrency.
+result names connect facts into a directed acyclic graph. You declare the inputs
+you supply and the outputs you need; the generated evaluator runs the required
+rules sequentially or with bounded concurrency.
 
-The [bonus ruleset](ruleset/bonus/bonus.go) contains 26 rules. Its external facts
-and requested results are declared in [facts.go](ruleset/bonus/facts.go).
+Use it when a calculation has several dependent steps that you want to write and
+test as ordinary Go functions. Graph validation happens during generation.
+Evaluations use typed storage and direct function calls, with no runtime
+reflection or string-based fact lookups.
+
+## Documentation
+
+| Task | Guide |
+| --- | --- |
+| Build and run your first evaluator | [Getting started](docs/getting-started.md) |
+| Define facts, rules, and output contracts | [Writing rulesets](docs/rulesets.md) |
+| Look up flags, configuration, and generation behavior | [Generator reference](docs/generator.md) |
+| Handle concurrency, errors, and cancellation | [Runtime and API reference](docs/runtime.md) |
+| Understand the compiler and scheduler | [Architecture](docs/architecture.md) |
+| Follow the included 26-rule calculation | [Bonus example](docs/bonus-example.md) |
+| Diagnose generation and evaluation problems | [Troubleshooting](docs/troubleshooting.md) |
+| Change Infergo and verify your work | [Development guide](CONTRIBUTING.md) |
 
 ## Run the example
 
-Use Go 1.26.4 or later. From the repository root, generate and test:
+Use Go 1.26.4 or later, as declared in [go.mod](go.mod). From a checkout:
 
 ```sh
 go generate ./...
 go test -race ./...
+go test ./ruleset/bonus -run '^ExampleEvaluate$' -v
 ```
 
-Call the generated evaluator with a separate input struct for each evaluation:
+The executable example computes a bonus of `1049000` cents and a payment
+reference of `BONUS-E01-1049000`. Its inputs and assertions are in
+[ExampleEvaluate](ruleset/bonus/bonus_test.go).
+
+The generated evaluator accepts a context, an input struct, and execution
+options:
 
 ```go
 result, err := bonus.Evaluate(ctx, bonus.Inputs{
@@ -40,17 +62,15 @@ if err != nil {
 fmt.Println(result.FinalBonusCents) // 1049000
 ```
 
-Import `github.com/vichr-vita/infergo` and
-`github.com/vichr-vita/infergo/ruleset/bonus` for this example. A runnable version
-is in [ExampleEvaluate](ruleset/bonus/bonus_test.go).
-
-`MaxParallel` values of zero and one execute sequentially without worker
-goroutines. Larger values bound the number of running rules per evaluation.
-Negative values return an error. Separate evaluations can run concurrently.
+This snippet belongs inside a function returning `error`. It uses `fmt`,
+`github.com/vichr-vita/infergo`, and
+`github.com/vichr-vita/infergo/ruleset/bonus`. The [getting started
+guide](docs/getting-started.md) provides a complete program for a smaller ruleset.
 
 ## Author a ruleset
 
-Place exported top-level rule functions in explicitly selected Go files:
+An exported function in a selected rule file becomes a rule. Names identify
+facts, and every occurrence of a fact must have an identical Go type:
 
 ```go
 func BaseBonus(salaryCents uint64, roleRateBps uint64) (
@@ -61,103 +81,39 @@ func BaseBonus(salaryCents uint64, roleRateBps uint64) (
 }
 ```
 
-Every input and ordinary output must have a name. The same fact name must have
-an identical Go type everywhere, including its struct mappings. Defined types
-retain their identity; the generator does not insert conversions. Each derived
-fact has one producer, and external inputs cannot also be produced by rules.
+This rule comes from the [bonus package](ruleset/bonus/bonus.go), where `scaled`
+is a helper. The generator connects `salaryCents` and `roleRateBps` to their
+sources and makes `baseBonusCents` available to other rules.
 
-Input and output contracts must be non-generic structs with exported,
-non-embedded fields. A `fact` tag maps a field to a fact name. Without a tag,
-the field name is used exactly as written:
-
-```go
-type Inputs struct {
-    SalaryCents uint64 `fact:"salaryCents"`
-    RoleRateBps uint64 `fact:"roleRateBps"`
-}
-
-type Outputs struct {
-    BaseBonusCents uint64 `fact:"baseBonusCents"`
-}
-```
-
-Add a generation directive in that package:
-
-```go
-//go:generate go run github.com/vichr-vita/infergo/cmd/infergen --rules rules.go --inputs Inputs --outputs Outputs
-```
-
-The package must depend on this module. Run `go generate` after changing rule
-declarations or struct mappings. The default output is `zz_infergo_gen.go`;
-set `--out` to choose another file in the same directory. Multiple rule files
-can be selected with `--rules rates.go,awards.go` or repeated `--rules` flags.
-
-The generator loads the package using the active Go build configuration. It
-validates all selected rules and emits only those needed for the output struct.
-Unexported functions and methods remain ordinary helpers. Rule files, contracts,
-and helpers must type-check without the generated evaluator, so generation also
-works when its output is absent or stale. `Evaluate` and `_infergoPlan` are
-reserved for generated declarations. One evaluator is supported per package.
+Input and output structs map exported fields to facts with `fact` tags. Add a
+`go:generate` directive in the ruleset package, then regenerate whenever the
+graph or contracts change. Follow [Writing rulesets](docs/rulesets.md) for the
+supported signatures, mappings, and package layout.
 
 ## Configure the generator
 
-The generator uses [Cobra](https://github.com/spf13/cobra) for its CLI and
-[Viper](https://github.com/spf13/viper) for configuration. Flags use two dashes;
-replace older `-rules`, `-inputs`, `-outputs`, and `-out` spellings with
-`--rules`, `--inputs`, `--outputs`, and `--out`.
+Run `infergen` in the ruleset directory. Supply rule files with `--rules`, an
+`infergen.yaml`, `infergen.toml`, or `infergen.json` file, or `INFERGEN_RULES`.
+Explicit flags override environment variables, which override configuration
+files and defaults. Flags use two dashes, such as `--rules`.
 
-Place an optional `infergen.yaml`, `infergen.toml`, or `infergen.json` in the
-ruleset directory, or select a file with `--config path/to/config.yaml`:
-
-```yaml
-rules:
-  - rates.go
-  - awards.go
-inputs: Inputs
-outputs: Outputs
-out: zz_infergo_gen.go
-```
-
-Rule and output paths are relative to the current ruleset directory, even when
-the config file lives elsewhere. Missing explicitly selected files and malformed
-configuration return errors.
-
-Environment variables use the `INFERGEN_` prefix: `INFERGEN_RULES`,
-`INFERGEN_INPUTS`, `INFERGEN_OUTPUTS`, `INFERGEN_OUT`, and `INFERGEN_CONFIG`.
-Use a comma-separated list for `INFERGEN_RULES`, such as `rates.go,awards.go`.
-Explicit flags override environment variables, which override config files,
-which override the defaults shown above. `rules` has no default and must be
-provided by one of these sources. Run `infergen --help` to see the flags.
+See the [generator reference](docs/generator.md) for installation, all options,
+path constraints, and reproducible generation.
 
 ## Execution rules
 
-- A rule executes once after all its producers succeed. Multiple input facts
-  from the same producer count as one dependency.
-- Zero, `false`, and `nil` are successful values. Consumers of optional `nil`
-  facts still execute. Completion determines readiness.
-- A trailing result of the built-in `error` type controls failure and is not a
-  fact. A failed rule publishes none of its outputs. Evaluation returns a zero
-  output struct and an `*infergo.RuleError`; `errors.Is` and `errors.As` preserve
-  access to the original error. With simultaneous failures, the first observed
-  failure is returned.
-- An optional first `context.Context` parameter receives the execution context.
-  The built-in `error` and `context.Context` types are reserved for execution
-  control and cannot be facts.
-- Cancellation and failure stop dispatching work and signal running rules.
-  Evaluation waits for those rules to finish before returning. Rules that ignore
-  context cancellation can delay that return.
-- Rules must treat facts and referenced maps, slices, and pointers as immutable.
-  The caller must also avoid changing input data during evaluation. Infergo
-  does not prove purity or copy referenced data.
-- Dependencies follow function declarations. A conditional inside a rule does
-  not let the evaluator skip any of that rule's inputs. A struct-valued result
-  is one fact; its fields do not become separate facts.
+`MaxParallel` values of zero and one run sequentially without worker goroutines.
+Larger values bound running rules per evaluation. Each call has separate fact
+storage, so independent evaluations can run concurrently.
 
-Missing facts, type mismatches, duplicate producers, unsupported declarations,
-and cycles fail generation with source locations. Generic and variadic rule
-functions are unsupported. This version has no dynamic branches, retries,
-fact updates, or incremental reevaluation.
+Rules execute after all their producers succeed. Zero, `false`, and `nil` are
+valid facts. Errors discard the result struct, cancel running work, and prevent
+dependent rules from running. Evaluation waits for started rules to return.
+Inputs and referenced data must remain immutable throughout evaluation.
 
-The runtime in [plan.go](plan.go) uses only the standard library. Package loading
-and type inspection are confined to the generator. Generated evaluators use
-typed fact storage and direct Go calls.
+Read the [runtime reference](docs/runtime.md) before using parallel execution or
+rules that perform I/O. The current implementation has no dynamic branches,
+retries, fact updates, incremental reevaluation, or panic recovery.
+
+The runtime in [plan.go](plan.go) imports only the standard library. Package
+loading and type inspection belong to the generator.
