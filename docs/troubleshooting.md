@@ -38,7 +38,7 @@ file names, locations, and fact names vary by ruleset.
 | `has multiple producers` | Keep one source for the fact. An external input also counts as a producer. |
 | `has type ..., expected ...` | Use identical types at the producer, consumers, and contract fields. Defined types differ from their underlying types. |
 | `rule dependency cycle` | Break the reported producer cycle. A rule cannot consume its own output fact. |
-| `is reserved for generated code` | Rename a hand-written `Evaluate` or `_infergoPlan`, or remove an obsolete generated file after checking it contains no hand-written code. |
+| `is reserved for generated code` | Rename the conflicting declaration. The generator reserves `Evaluate`, `EvaluateTrace`, `Ruleset`, `ViewerCase`, `ExportHTML`, and `_infergoPlan`. Remove an obsolete generated file only after checking it contains no hand-written code. |
 | `rules must be in a separate package` | Move rules out of the `github.com/vichr-vita/infergo` runtime package. |
 
 Configuration and path errors are described in the [generator

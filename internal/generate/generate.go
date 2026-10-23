@@ -9,6 +9,7 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -51,6 +52,8 @@ type rule struct {
 	dependencies []int
 	withContext  bool
 	withError    bool
+	requirement  string
+	source       string
 }
 
 type compiler struct {
@@ -119,7 +122,7 @@ func Generate(config Config) ([]byte, error) {
 	if pkg.PkgPath == runtimePath {
 		return nil, fmt.Errorf("rules must be in a separate package from the infergo runtime")
 	}
-	for _, reserved := range []string{"Evaluate", "_infergoPlan"} {
+	for _, reserved := range []string{"Evaluate", "EvaluateTrace", "Ruleset", "ViewerCase", "ExportHTML", "_infergoPlan"} {
 		if obj := pkg.Types.Scope().Lookup(reserved); obj != nil {
 			return nil, fmt.Errorf("%s: %s is reserved for generated code", pkg.Fset.Position(obj.Pos()), reserved)
 		}
@@ -152,6 +155,10 @@ func Generate(config Config) ([]byte, error) {
 		if !ok {
 			return nil, fmt.Errorf("rule file %q is missing or excluded by build constraints", path)
 		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read rule source: %w", err)
+		}
 		for _, declaration := range file.Decls {
 			fn, ok := declaration.(*ast.FuncDecl)
 			if !ok || fn.Recv != nil || !fn.Name.IsExported() {
@@ -160,6 +167,10 @@ func Generate(config Config) ([]byte, error) {
 			if err := c.addRule(pkg.TypesInfo.Defs[fn.Name].(*types.Func)); err != nil {
 				return nil, err
 			}
+			start, end := pkg.Fset.Position(fn.Pos()).Offset, pkg.Fset.Position(fn.End()).Offset
+			r := &c.rules[len(c.rules)-1]
+			r.source = string(raw[start:end])
+			r.requirement = strings.TrimSpace(fn.Doc.Text())
 		}
 	}
 	if err := c.validate(); err != nil {
@@ -368,6 +379,8 @@ func (c *compiler) emit(config Config) ([]byte, error) {
 	contextAlias, runtimeAlias := fresh("_infergo_context"), fresh("_infergo_runtime")
 	ctx, input, options := fresh("ctx"), fresh("input"), fresh("options")
 	facts, errorName, ruleID := fresh("facts"), fresh("err"), fresh("ruleID")
+	snapshot, callbackErr := fresh("snapshot"), fresh("ruleErr")
+	evaluator := fresh("_infergoEvaluate")
 	expression := func(name string) string {
 		f := c.facts[name]
 		if f.producer < 0 {
@@ -399,9 +412,62 @@ func (c *compiler) emit(config Config) ([]byte, error) {
 		fmt.Fprintln(&body, "}},")
 	}
 	fmt.Fprintln(&body, "})\nif err != nil { panic(err) }\nreturn plan\n}()")
+	// Metadata is emitted from the same retained rules and fact contracts as execution.
+	emitFacts := func(specs []fact) {
+		fmt.Fprintf(&body, "[]%s.FactSpec{", runtimeAlias)
+		for _, f := range specs {
+			fmt.Fprintf(&body, "{Name: %q, Type: %q},", f.name, types.TypeString(f.typ, func(pkg *types.Package) string { return pkg.Name() }))
+		}
+		fmt.Fprint(&body, "}")
+	}
+	fmt.Fprintln(&body, "\n// Ruleset returns fresh metadata for the generated evaluator.")
+	fmt.Fprintf(&body, "func Ruleset() %s.Ruleset { return %s.Ruleset{Inputs:", runtimeAlias, runtimeAlias)
+	var external []fact
+	for _, name := range sortedFactNames(c.facts) {
+		if f := c.facts[name]; f.producer < 0 {
+			external = append(external, f)
+		}
+	}
+	emitFacts(external)
+	fmt.Fprint(&body, ", Outputs:")
+	var requested []fact
+	for _, output := range c.outputs {
+		requested = append(requested, output.fact)
+	}
+	emitFacts(requested)
+	fmt.Fprintf(&body, ", Rules: []%s.RuleSpec{", runtimeAlias)
+	for _, id := range ids {
+		r := c.rules[id]
+		fmt.Fprintf(&body, "{ID: %q, Requirement: %q, Source: %q, Inputs:", r.name, r.requirement, r.source)
+		emitFacts(r.inputs)
+		fmt.Fprint(&body, ", Outputs:")
+		emitFacts(r.outputs)
+		fmt.Fprint(&body, "},")
+	}
+	fmt.Fprintln(&body, "}} }")
+	fmt.Fprintln(&body, "\n// ViewerCase provides typed inputs for a saved HTML scenario.")
+	fmt.Fprintf(&body, "type ViewerCase = %s.ViewerCase[%s]\n", runtimeAlias, config.Inputs)
+	fmt.Fprintln(&body, "\n// ExportHTML evaluates scenarios once and exports an offline graph and inspector.")
+	fmt.Fprintln(&body, "// Failed evaluations remain inspectable. An empty case list exports only topology.")
+	fmt.Fprintf(&body, "func ExportHTML(ctx %s.Context, title string, cases []ViewerCase) (string, error) { return %s.ExportHTML(ctx, title, Ruleset(), cases, EvaluateTrace) }\n", contextAlias, runtimeAlias)
+	fmt.Fprintln(&body, "\n// EvaluateTrace captures diagnostic values without changing result or error semantics.")
+	fmt.Fprintf(&body, "func EvaluateTrace(%s %s.Context, %s %s, %s %s.Options) (%s, %s.Snapshot, error) {\n", ctx, contextAlias, input, config.Inputs, options, runtimeAlias, config.Outputs, runtimeAlias)
+	fmt.Fprintf(&body, "%s := %s.Snapshot{Inputs: map[string]string{", snapshot, runtimeAlias)
+	for _, f := range external {
+		fmt.Fprintf(&body, "%q: %s.FormatValue(%s.%s),", f.name, runtimeAlias, input, f.field)
+	}
+	fmt.Fprintf(&body, "}, Trace: []%s.RuleTrace{", runtimeAlias)
+	for _, id := range ids {
+		fmt.Fprintf(&body, "{Rule:%q, Kind: \"not_run\", Facts: map[string]string{}},", c.rules[id].name)
+	}
+	fmt.Fprintln(&body, "}}")
+	fmt.Fprintf(&body, "result, %s := %s(%s, %s, %s, &%s)\n", errorName, evaluator, ctx, input, options, snapshot)
+	fmt.Fprintf(&body, "if %s != nil { %s.Error = %s.Error() }\nreturn result, %s, %s\n}\n", errorName, snapshot, errorName, snapshot, errorName)
 	fmt.Fprintln(&body, "\n// Evaluate computes the requested output facts. Inputs and their referenced")
 	fmt.Fprintln(&body, "// data must remain immutable until evaluation returns. Errors discard all outputs.")
 	fmt.Fprintf(&body, "func Evaluate(%s %s.Context, %s %s, %s %s.Options) (%s, error) {\n", ctx, contextAlias, input, config.Inputs, options, runtimeAlias, config.Outputs)
+	fmt.Fprintf(&body, "return %s(%s, %s, %s, nil)\n}\n", evaluator, ctx, input, options)
+	fmt.Fprintf(&body, "func %s(%s %s.Context, %s %s, %s %s.Options, %s *%s.Snapshot) (%s, error) {\n", evaluator, ctx, contextAlias, input, config.Inputs, options, runtimeAlias, snapshot, runtimeAlias, config.Outputs)
 	if len(ids) != 0 {
 		fmt.Fprintf(&body, "var %s struct {\n", facts)
 		for _, id := range ids {
@@ -411,7 +477,8 @@ func (c *compiler) emit(config Config) ([]byte, error) {
 		}
 		fmt.Fprintln(&body, "}")
 	}
-	fmt.Fprintf(&body, "%s := _infergoPlan.Run(%s, %s, func(%s %s.Context, %s int) error {\nswitch %s {\n", errorName, ctx, options, ctx, contextAlias, ruleID, ruleID)
+	fmt.Fprintf(&body, "%s := _infergoPlan.Run(%s, %s, func(%s %s.Context, %s int) (%s error) {\n", errorName, ctx, options, ctx, contextAlias, ruleID, callbackErr)
+	fmt.Fprintf(&body, "if %s != nil { defer func() { %s.Trace[%s].Complete(%s) }() }\nswitch %s {\n", snapshot, snapshot, ruleID, callbackErr, ruleID)
 	for _, id := range ids {
 		r := c.rules[id]
 		fmt.Fprintf(&body, "case %d:\n", indices[id])
@@ -435,6 +502,11 @@ func (c *compiler) emit(config Config) ([]byte, error) {
 		for i, f := range r.outputs {
 			fmt.Fprintf(&body, "%s.%s = value%d\n", facts, f.name, i)
 		}
+		fmt.Fprintf(&body, "if %s != nil { %s.Trace[%d].Facts = map[string]string{", snapshot, snapshot, indices[id])
+		for i, f := range r.outputs {
+			fmt.Fprintf(&body, "%q: %s.FormatValue(value%d),", f.name, runtimeAlias, i)
+		}
+		fmt.Fprintln(&body, "} }")
 		fmt.Fprintln(&body, "return nil")
 	}
 	fmt.Fprintln(&body, "default: panic(\"infergo: invalid rule ID\")\n}\n})")
@@ -460,4 +532,14 @@ func (c *compiler) emit(config Config) ([]byte, error) {
 		return nil, fmt.Errorf("format generated code: %w", err)
 	}
 	return formatted, nil
+}
+
+// Stable ordering keeps generated metadata reproducible.
+func sortedFactNames(facts map[string]fact) []string {
+	names := make([]string, 0, len(facts))
+	for name := range facts {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
 }

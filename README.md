@@ -18,6 +18,7 @@ reflection or string-based fact lookups.
 | Define facts, rules, and output contracts | [Writing rulesets](docs/rulesets.md) |
 | Look up flags, configuration, and generation behavior | [Generator reference](docs/generator.md) |
 | Handle concurrency, errors, and cancellation | [Runtime and API reference](docs/runtime.md) |
+| Explore rule graphs, values, source, and saved scenarios | [Visualization guide](docs/visualization.md) |
 | Understand the compiler and scheduler | [Architecture](docs/architecture.md) |
 | Follow the included 26-rule calculation | [Bonus example](docs/bonus-example.md) |
 | Diagnose generation and evaluation problems | [Troubleshooting](docs/troubleshooting.md) |
@@ -117,3 +118,16 @@ retries, fact updates, incremental reevaluation, or panic recovery.
 
 The runtime in [plan.go](plan.go) imports only the standard library. Package
 loading and type inspection belong to the generator.
+
+## Explore an evaluation
+
+Export the bonus rules and saved scenarios to a self-contained HTML page:
+
+```sh
+go run ./examples/bonus-viewer /tmp/infergo-bonus.html
+```
+
+Open the file in a browser to explore dependencies, inspect fact values and Go
+source, and switch scenarios. Generated rulesets expose `EvaluateTrace` for
+diagnostic snapshots and `ExportHTML` for offline viewers. See the
+[visualization guide](docs/visualization.md) for custom exports and API behavior.

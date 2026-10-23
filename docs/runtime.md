@@ -1,5 +1,9 @@
 # Runtime and API reference
 
+For optional diagnostic snapshots and offline HTML graph export, see the
+[visualization guide](visualization.md). `EvaluateTrace` preserves `Evaluate`'s
+result and error behavior while returning diagnostic values separately.
+
 Most applications call the generated `Evaluate` function. The public `infergo`
 package also exposes a dependency scheduler for callers that supply their own
 rule dispatch and storage. This page covers both interfaces and their execution

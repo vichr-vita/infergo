@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check:viewer
+      - run: go generate ./...
+      - run: git diff --exit-code -- ruleset/bonus/zz_infergo_gen.go
+      - run: go test -race ./...
+      - run: go vet ./...
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run test:ui

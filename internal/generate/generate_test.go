@@ -50,6 +50,7 @@ var _infergo_context = 1
 var _infergo_pkg0 = 2
 type offsetKey struct{}
 var negativeSeed = errors.New("negative seed")
+// Split shares the seed with two downstream facts. BR-01.
 func Split(seed int) (left int, right int, err error) {
     if seed < 0 { return 100, 200, negativeSeed }
     return seed, seed + 1, nil
@@ -89,6 +90,7 @@ func (Inputs) Method() int { return 0 }
 	write(t, path, string(again))
 	write(t, filepath.Join(config.Dir, "generated_test.go"), `package rules
 import (
+    "fmt"
     "context"
     "errors"
     "testing"
@@ -101,11 +103,42 @@ func TestEvaluation(t *testing.T) {
         if err != nil || got.Final != 10 || !got.Absent || got.Stamp != 10 || got.Seed != 2 || got.Packet.Value != 10 {
             t.Fatalf("limit %d: got %+v, error %v", limit, got, err)
         }
+        traced, snapshot, traceErr := EvaluateTrace(ctx, Inputs{Seed: 2}, infergo.Options{MaxParallel: limit})
+        if traceErr != nil || traced != got || snapshot.Inputs["seed"] != "2" || snapshot.Error != "" || len(snapshot.Trace) != 6 {
+            t.Fatalf("trace result %+v, snapshot %+v, error %v", traced, snapshot, traceErr)
+        }
+        for _, rule := range snapshot.Trace {
+            if rule.Kind != "succeeded" { t.Fatalf("unexpected trace: %+v", rule) }
+            if rule.Rule == "Optional" && rule.Facts["maybe"] != "nil" { t.Fatal("nil fact lost") }
+            if rule.Rule == "Join" && rule.Facts["final"] != "10" { t.Fatal("intermediate fact lost") }
+        }
+        metadata := Ruleset()
+        if metadata.Rules[0].ID != "Split" || metadata.Rules[0].Requirement != "Split shares the seed with two downstream facts. BR-01." || metadata.Rules[0].Source == "" || metadata.Rules[0].Inputs[0].Type != "int" {
+            t.Fatalf("incorrect metadata: %+v", metadata)
+        }
+        metadata.Rules[0].ID = "mutated"
+        if Ruleset().Rules[0].ID != "Split" { t.Fatal("metadata is shared") }
         got, err = Evaluate(ctx, Inputs{Seed: -1}, infergo.Options{MaxParallel: limit})
         var ruleError *infergo.RuleError
         if !errors.Is(err, negativeSeed) || !errors.As(err, &ruleError) || ruleError.Rule != "Split" || got != (Outputs{}) {
             t.Fatalf("limit %d: failed result %+v, error %v", limit, got, err)
         }
+        traced, snapshot, traceErr = EvaluateTrace(ctx, Inputs{Seed: -1}, infergo.Options{MaxParallel: limit})
+        if !errors.Is(traceErr, negativeSeed) || traced != (Outputs{}) || snapshot.Error == "" || snapshot.Trace[0].Kind != "failed" || len(snapshot.Trace[0].Facts) != 0 {
+            t.Fatalf("failed trace result %+v, snapshot %+v, error %v", traced, snapshot, traceErr)
+        }
+        for _, trace := range snapshot.Trace[1:] {
+            if trace.Kind != "not_run" || len(trace.Facts) != 0 { t.Fatalf("dependent ran: %+v", trace) }
+        }
+    }
+}
+func TestConcurrentTraces(t *testing.T) {
+    for i := range 16 {
+        t.Run(fmt.Sprint(i), func(t *testing.T) {
+            t.Parallel()
+            _, snapshot, err := EvaluateTrace(t.Context(), Inputs{Seed:i}, infergo.Options{MaxParallel:4})
+            if err != nil || snapshot.Trace[0].Facts["left"] != fmt.Sprint(i) { t.Fatalf("shared trace: %+v, %v", snapshot, err) }
+        })
     }
 }
 `)
@@ -212,5 +245,49 @@ func TestInputOnlyEvaluator(t *testing.T) {
 	command.Env = append(os.Environ(), "GOWORK=off")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("input-only evaluator failed: %v\n%s", err, output)
+	}
+}
+
+func TestGeneratedTraceIncludesFinishedAndCanceledWork(t *testing.T) {
+	config := fixture(t, `package rules
+import ("context"; "errors")
+type Inputs struct{}
+type Outputs struct { Joined int `+"`fact:\"joined\"`"+`; Saved int `+"`fact:\"saved\"`"+` }
+var started = make(chan struct{})
+var saved = make(chan struct{})
+var failure = errors.New("failure")
+func Fail() (left int, err error) { <-started; <-saved; return 0, failure }
+func Wait(ctx context.Context) (right int, err error) { close(started); <-ctx.Done(); return 0, ctx.Err() }
+func Save() (saved int) { signalSaved(); return 42 }
+func signalSaved() { close(saved) }
+func Join(left int, right int) (joined int) { panic("failed dependency ran") }
+`)
+	source, err := Generate(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(config.Dir, config.OutputFile), string(source))
+	write(t, filepath.Join(config.Dir, "trace_test.go"), `package rules
+import (
+    "errors"
+    "testing"
+    "github.com/vichr-vita/infergo"
+)
+func TestTrace(t *testing.T) {
+    result, snapshot, err := EvaluateTrace(t.Context(), Inputs{}, infergo.Options{MaxParallel:3})
+    if !errors.Is(err, failure) || result != (Outputs{}) { t.Fatalf("result %+v, error %v", result, err) }
+    expected := map[string]string{"Fail":"failed", "Wait":"canceled", "Save":"succeeded", "Join":"not_run"}
+    for _, trace := range snapshot.Trace {
+        if trace.Kind != expected[trace.Rule] { t.Fatalf("trace: %+v", trace) }
+        if trace.Rule == "Save" && trace.Facts["saved"] != "42" { t.Fatal("successful diagnostic value lost") }
+        if trace.Rule != "Save" && len(trace.Facts) != 0 { t.Fatalf("unpublished facts: %+v", trace) }
+    }
+}
+`)
+	command := exec.CommandContext(t.Context(), "go", "test", "-race", "./...")
+	command.Dir = config.Dir
+	command.Env = append(os.Environ(), "GOWORK=off")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("traced cancellation failed: %v\n%s", err, output)
 	}
 }

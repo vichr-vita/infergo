@@ -1,0 +1,147 @@
+<!doctype html>
+<!-- Adapted from Inferrum for Infergo. Licensed under Apache-2.0. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Infergo ruleset</title>
+  <style>
+    :root { color-scheme: dark; font: 15px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; background: #000; color: #fff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 1580px; margin: auto; padding: 24px clamp(16px, 3vw, 48px) 48px; }
+    h1 { font-size: 25px; letter-spacing: -.6px; font-weight: 600; margin: 0; }
+    h2 { font-size: 20px; margin: 0; overflow-wrap: anywhere; }
+    h3 { font-size: 14px; margin: 24px 0 10px; }
+    p { margin: 8px 0 16px; }
+    header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; border-bottom: 1px solid #555; padding-bottom: 20px; }
+    .brand { font-size: 15px; margin: 0; }
+    .toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; gap: 16px 24px; margin: 20px 0; }
+    label { display: block; font-size: 13px; margin-bottom: 6px; }
+    input, select, button { font: inherit; color: inherit; background: #000; border: 1px solid #666; border-radius: 0; min-height: 44px; max-width: 100%; }
+    input, select { width: 100%; padding: 8px 32px 8px 10px; text-overflow: ellipsis; }
+    button { cursor: pointer; padding: 8px 12px; }
+    button:disabled { color: #999; cursor: default; }
+    a { color: #74dfd0; overflow-wrap: anywhere; text-underline-offset: 4px; }
+    :focus-visible { outline: 2px solid #74dfd0; outline-offset: 3px; }
+    .summary { display: flex; flex-wrap: wrap; gap: 6px 24px; padding: 12px 0; margin-bottom: 22px; border-block: 1px solid #333; font-size: 13px; }
+    #case-caption { overflow-wrap: anywhere; }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 330px); gap: 28px; align-items: start; }
+    .workspace > *, .toolbar > * { min-width: 0; }
+    .diagram-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 12px; }
+    #diagram-title { font-size: 14px; font-weight: 500; }
+    .diagram-controls { display: flex; gap: 8px; }
+    .diagram-controls button { font-size: 12px; }
+    #diagram-viewport { max-height: 680px; height: min(680px, 75dvh); overflow: auto; border: 1px dashed #666; scrollbar-width: thin; cursor: grab; touch-action: none; user-select: none; overscroll-behavior: contain; }
+    #diagram-viewport.dragging, #diagram-viewport.dragging * { cursor: grabbing; }
+    #diagram { display: block; max-width: none; margin-inline: auto; }
+    #diagram .rule-node rect { fill: #000; stroke: #888; stroke-width: 1.4; }
+    #diagram .rule-node text { fill: #fff; font: 13px Arial, sans-serif; }
+    #diagram .rule-node .node-type { fill: #ccc; font-size: 12px; }
+    #diagram .rule-node .node-name { font: 600 14px monospace; }
+    #diagram .rule-node .node-value { font-size: 16px; }
+    #diagram .rule-node line { stroke: #333; }
+    #diagram .rule-node[aria-current="true"] rect { stroke: #74dfd0; stroke-width: 2.5; }
+    #diagram .rule-node[aria-current="true"] .node-value { fill: #74dfd0; }
+    #diagram .rule-node[data-status="not_run"] rect { stroke-dasharray: 5 4; }
+    #diagram .rule-node[data-status="failed"] .node-value, #diagram .rule-node[data-status="not_run"] .node-value { fill: #f0b36c; }
+    #diagram .edge { fill: none; stroke: #888; stroke-width: 1.25; stroke-dasharray: 5 4; }
+    #diagram .edge.selected { stroke: #74dfd0; stroke-width: 2; }
+    #diagram .edge-label rect { fill: #000; }
+    #diagram .edge-label text { fill: #ccc; font: 12px monospace; text-anchor: middle; }
+    #diagram .edge-label.selected text { fill: #74dfd0; }
+    #diagram .rule-node:focus { outline: none; }
+    #diagram .rule-node:focus rect { stroke: #fff; stroke-width: 3; }
+    #inspector { border-left: 1px solid #555; padding-left: 22px; padding-right: 6px; position: sticky; top: 16px; max-height: calc(100dvh - 32px); overflow-y: auto; scrollbar-width: thin; }
+    #inspector h2 { color: #74dfd0; }
+    #rule-requirement { margin-top: 16px; }
+    .status { font-size: 13px; margin: 8px 0 0; }
+    .status[data-kind="failed"], .status[data-kind="canceled"], .status[data-kind="not_run"] { color: #f0b36c; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
+    .facts { list-style: none; padding: 0; margin: 0; }
+    .facts li { padding: 10px 0; border-bottom: 1px solid #333; }
+    .fact-name { display: block; }
+    .fact-type { font-size: 11px; color: #ccc; overflow-wrap: anywhere; }
+    .fact-value { display: block; margin-top: 6px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+    #outputs .fact-value { font-size: 26px; letter-spacing: -.5px; }
+    .fact-origin { display: inline-block; font-size: 12px; margin-top: 6px; }
+    details { margin-top: 22px; border-block: 1px solid #444; }
+    summary { cursor: pointer; min-height: 44px; padding: 10px 0; }
+    pre { margin: 0 0 16px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 12px; margin: 16px 0; }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .box { width: 13px; height: 11px; border: 1px solid #fff; }
+    .dashed { border-style: dashed; }
+    #evaluation-error { border-left: 2px solid #ff9999; padding: 12px 16px; overflow-wrap: anywhere; }
+    #diagram .search-match rect { stroke: #fff; stroke-width: 3; }
+    #back-to-map, .mobile-caption { display: none; }
+    .note { font-size: 12px; margin-top: 22px; }
+    #rule-list { list-style: none; padding: 0; margin: 0; display: none; }
+    #rule-list > li { border: 1px solid #888; padding: 14px; margin-bottom: 16px; }
+    #rule-list > li.selected { border: 2px solid #74dfd0; padding: 13px; }
+    #rule-list > li > a { display: block; min-height: 44px; padding: 8px 0; font: 600 14px/1.5 ui-monospace, monospace; }
+    #rule-list .rule-dependencies a { display: inline-block; min-height: 44px; padding: 10px 0; }
+    #rule-list > li > a[aria-current="true"] { color: #74dfd0; font-weight: 600; }
+    #rule-list > li > a:not([aria-current="true"]) { color: #fff; }
+    #rule-list > li > p { font-size: 12px; margin: 4px 0; overflow-wrap: anywhere; }
+    #rule-list > li > .rule-description { font-size: 13px; margin-bottom: 12px; }
+    #empty { padding: 30px 0; }
+    [hidden] { display: none !important; }
+    @media (max-width: 1100px) { .workspace { grid-template-columns: minmax(0,1fr); } #inspector { border-left: 0; padding: 22px 0 0; border-top: 1px solid #555; position: static; max-height: none; overflow-y: visible; } }
+    @media (max-width: 1100px) {
+      .toolbar { grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; }
+      .toolbar > :nth-child(2) { order: 0; }
+      .toolbar > :nth-child(3) { order: 1; }
+      .toolbar > :nth-child(1) { order: 2; }
+      .toolbar > button { order: 3; align-self: end; }
+      .mobile-caption { display: block; font-size: 12px; }
+      #rule-list #inspector { margin-top: 18px; }
+
+      .toolbar button { justify-self: start; }
+      #diagram-viewport, .diagram-controls, .legend { display: none; }
+      #rule-list { display: block; }
+      #back-to-map { display: inline-block; min-height: 44px; padding: 10px 0; }
+      .workspace { display: flex; flex-direction: column; gap: 24px; }
+      #inspector { width: 100%; padding: 24px 0 0; border-top: 1px solid #555; }
+      #graph-region { width: 100%; }
+      #outputs .fact-value { font-size: 24px; }
+      .summary { margin-bottom: 20px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header><h1 id="title">Ruleset map</h1><p class="brand">Infergo</p></header>
+  <noscript><p>Enable JavaScript to inspect this ruleset. The embedded JSON contains the saved rule metadata and evaluations.</p></noscript>
+  <div id="viewer" hidden>
+    <div class="toolbar">
+      <div><label for="rule-search">Find a rule or fact</label><input id="rule-search" type="search" autocomplete="off" placeholder="Name or fact"><span id="search-results" role="status"></span></div>
+      <div><label for="case-select">Scenario</label><select id="case-select"></select></div>
+      <div><label for="rule-select">Rule</label><select id="rule-select"></select></div>
+      <button id="copy-link" type="button">Copy link</button>
+    </div>
+    <div class="summary"><span id="case-caption"></span><span id="counts"></span><span id="run-summary"></span></div>
+    <p id="evaluation-error" role="status" hidden></p>
+    <div class="workspace">
+      <div id="graph-region">
+        <div class="diagram-heading"><h2 id="diagram-title">Rule dependencies</h2><div class="diagram-controls" aria-label="Diagram size"><button id="diagram-zoom-in" type="button" aria-label="Zoom in">+</button><button id="diagram-zoom-out" type="button" aria-label="Zoom out">−</button><button id="diagram-fit" type="button" aria-pressed="false">Fit map</button><button id="diagram-actual" type="button" aria-pressed="true">Actual size</button></div></div>
+        <div id="diagram-viewport" tabindex="0" role="region" aria-label="Scrollable rule dependency map" aria-description="Drag to pan. Pinch to zoom. Use plus or minus to zoom, 0 to fit, and 1 for actual size."><svg id="diagram" xmlns="http://www.w3.org/2000/svg" aria-label="Rule dependency graph" role="group"></svg></div>
+        <p class="mobile-caption">Selected rule, its producers, and its consumers. Choose any rule above to follow its dependencies.</p>
+        <ol id="rule-list" aria-label="Rules in dependency order"></ol>
+        <p id="empty" hidden>This ruleset has no rules.</p>
+        <div class="legend"><span><i class="box"></i>Rule function and result</span><span>⇢ Fact flows to consumer</span><span><i class="box dashed"></i>Not run</span><span>Teal: selected rule and dependencies</span></div>
+      </div>
+      <aside id="inspector" aria-label="Rule inspector" tabindex="-1">
+        <a id="back-to-map" href="#graph-region">Return to map</a>
+        <h2 id="rule-title"></h2>
+        <p id="rule-status" class="status" role="status"></p>
+        <p id="rule-requirement"></p>
+        <h3>Outputs</h3><ul id="outputs" class="facts"></ul>
+        <h3>Reads</h3><ul id="inputs" class="facts"></ul>
+        <details id="source-panel" open><summary>Go source</summary><pre><code id="source"></code></pre></details>
+        <p class="note">Edges show declared dependencies. Values and statuses come from the selected evaluation.</p>
+      </aside>
+    </div>
+  </div>
+</main>
+<!-- INFERGO_DATA -->

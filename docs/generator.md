@@ -138,9 +138,13 @@ The output contains:
 - A generated-code header and the ruleset's package declaration.
 - An unexported `_infergoPlan`, built once during package initialization.
 - An exported `Evaluate` function using your selected input and output types.
+- `Ruleset` metadata, `EvaluateTrace` diagnostic evaluation, and a typed
+  `ViewerCase` alias with `ExportHTML` for the offline viewer. See the
+  [visualization guide](visualization.md).
 - Per-evaluation typed fact storage and direct calls to included rules.
 
-`Evaluate` and `_infergoPlan` are reserved package names. A different `--out`
+`Evaluate`, `EvaluateTrace`, `Ruleset`, `ViewerCase`, `ExportHTML`, and
+`_infergoPlan` are reserved package names. A different `--out`
 does not create a second independently named evaluator. If you rename the output
 file, remove the old generated file after confirming it contains only generated
 code, then regenerate with the new configuration.

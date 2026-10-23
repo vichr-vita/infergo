@@ -1,0 +1,15 @@
+{
+  "name": "infergo-viewer",
+  "private": true,
+  "scripts": {
+    "build:viewer": "tsc -p viewer/tsconfig.json && node viewer/build.mjs",
+    "check:viewer": "tsc -p viewer/tsconfig.json && node viewer/build.mjs --check",
+    "test:ui": "playwright test"
+  },
+  "devDependencies": {
+    "@dagrejs/dagre": "3.1.1",
+    "@playwright/test": "1.64.1",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  }
+}

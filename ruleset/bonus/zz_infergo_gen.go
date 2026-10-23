@@ -42,9 +42,36 @@ var _infergoPlan = func() *_infergo_runtime.Plan {
 	return plan
 }()
 
+// Ruleset returns fresh metadata for the generated evaluator.
+func Ruleset() _infergo_runtime.Ruleset {
+	return _infergo_runtime.Ruleset{Inputs: []_infergo_runtime.FactSpec{{Name: "active", Type: "bool"}, {Name: "companyTargetMet", Type: "bool"}, {Name: "criticalSkill", Type: "bool"}, {Name: "department", Type: "bonus.Department"}, {Name: "disciplinaryHold", Type: "bool"}, {Name: "employeeBudgetCents", Type: "uint64"}, {Name: "employeeID", Type: "string"}, {Name: "financeApproved", Type: "bool"}, {Name: "managerApproved", Type: "bool"}, {Name: "performanceScore", Type: "uint8"}, {Name: "role", Type: "bonus.Role"}, {Name: "salaryCents", Type: "uint64"}, {Name: "tenureMonths", Type: "uint16"}, {Name: "trainingComplete", Type: "bool"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "finalBonusCents", Type: "uint64"}, {Name: "totalCompensationCents", Type: "uint64"}, {Name: "paymentReadyCents", Type: "*uint64"}, {Name: "reviewRequired", Type: "*string"}, {Name: "paymentReference", Type: "*string"}}, Rules: []_infergo_runtime.RuleSpec{{ID: "GoodPerformance", Requirement: "GoodPerformance validates the score and requires a score above 50. BR-01.", Source: "func GoodPerformance(performanceScore uint8) (goodPerformance bool, performanceScoreError error) {\n\tif performanceScore > 100 {\n\t\treturn false, errors.New(\"performance_score must be between 0 and 100\")\n\t}\n\treturn performanceScore > 50, nil\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "performanceScore", Type: "uint8"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "goodPerformance", Type: "bool"}}}, {ID: "ExceptionalPerformance", Requirement: "ExceptionalPerformance requires a score of at least 90. BR-02.", Source: "func ExceptionalPerformance(performanceScore uint8) (exceptionalPerformance bool) {\n\treturn performanceScore >= 90\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "performanceScore", Type: "uint8"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "exceptionalPerformance", Type: "bool"}}}, {ID: "TenureEligible", Requirement: "TenureEligible requires at least 12 months of service. BR-03.", Source: "func TenureEligible(tenureMonths uint16) (tenureEligible bool) {\n\treturn tenureMonths >= 12\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "tenureMonths", Type: "uint16"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "tenureEligible", Type: "bool"}}}, {ID: "ConductClear", Requirement: "ConductClear requires no active disciplinary hold. BR-04.", Source: "func ConductClear(disciplinaryHold bool) (conductClear bool) {\n\treturn !disciplinaryHold\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "disciplinaryHold", Type: "bool"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "conductClear", Type: "bool"}}}, {ID: "EmploymentEligible", Requirement: "EmploymentEligible requires active employment and eligible tenure. BR-05.", Source: "func EmploymentEligible(active bool, tenureEligible bool) (employmentEligible bool) {\n\treturn active && tenureEligible\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "active", Type: "bool"}, {Name: "tenureEligible", Type: "bool"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "employmentEligible", Type: "bool"}}}, {ID: "IsBonusEligible", Requirement: "IsBonusEligible requires eligible employment, good performance, clear conduct,\nand completed training. BR-06.", Source: "func IsBonusEligible(employmentEligible bool, goodPerformance bool, conductClear bool, trainingComplete bool) (bonusEligible bool) {\n\treturn employmentEligible && goodPerformance && conductClear && trainingComplete\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "employmentEligible", Type: "bool"}, {Name: "goodPerformance", Type: "bool"}, {Name: "conductClear", Type: "bool"}, {Name: "trainingComplete", Type: "bool"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "bonusEligible", Type: "bool"}}}, {ID: "RoleRate", Requirement: "RoleRate returns 5% for clerks, 7% for specialists, or 8% for managers. BR-07.", Source: "func RoleRate(role Role) (roleRateBps uint64, roleError error) {\n\tswitch role {\n\tcase Clerk:\n\t\treturn 500, nil\n\tcase Specialist:\n\t\treturn 700, nil\n\tcase Manager:\n\t\treturn 800, nil\n\tdefault:\n\t\treturn 0, fmt.Errorf(\"unknown role %q\", role)\n\t}\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "role", Type: "bonus.Role"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "roleRateBps", Type: "uint64"}}}, {ID: "DepartmentFactor", Requirement: "DepartmentFactor returns 110% for engineering, 120% for sales, or 100% for\noperations. BR-08.", Source: "func DepartmentFactor(department Department) (departmentFactorBps uint64, departmentError error) {\n\tswitch department {\n\tcase Engineering:\n\t\treturn 11_000, nil\n\tcase Sales:\n\t\treturn 12_000, nil\n\tcase Operations:\n\t\treturn 10_000, nil\n\tdefault:\n\t\treturn 0, fmt.Errorf(\"unknown department %q\", department)\n\t}\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "department", Type: "bonus.Department"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "departmentFactorBps", Type: "uint64"}}}, {ID: "CompanyFactor", Requirement: "CompanyFactor returns 100% when the company target is met, otherwise 50%. BR-09.", Source: "func CompanyFactor(companyTargetMet bool) (companyFactorBps uint64) {\n\tif companyTargetMet {\n\t\treturn 10_000\n\t}\n\treturn 5_000\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "companyTargetMet", Type: "bool"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "companyFactorBps", Type: "uint64"}}}, {ID: "PerformanceFactor", Requirement: "PerformanceFactor returns 150% for exceptional performance, otherwise 100%. BR-10.", Source: "func PerformanceFactor(exceptionalPerformance bool) (performanceFactorBps uint64) {\n\tif exceptionalPerformance {\n\t\treturn 15_000\n\t}\n\treturn 10_000\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "exceptionalPerformance", Type: "bool"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "performanceFactorBps", Type: "uint64"}}}, {ID: "BaseBonus", Requirement: "BaseBonus multiplies annual salary by the role rate. BR-11.", Source: "func BaseBonus(salaryCents uint64, roleRateBps uint64) (baseBonusCents uint64, baseBonusError error) {\n\treturn scaled(salaryCents, roleRateBps)\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "salaryCents", Type: "uint64"}, {Name: "roleRateBps", Type: "uint64"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "baseBonusCents", Type: "uint64"}}}, {ID: "PerformanceBonus", Requirement: "PerformanceBonus applies the performance factor to the base bonus. BR-12.", Source: "func PerformanceBonus(baseBonusCents uint64, performanceFactorBps uint64) (performanceBonusCents uint64, performanceBonusError error) {\n\treturn scaled(baseBonusCents, performanceFactorBps)\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "baseBonusCents", Type: "uint64"}, {Name: "performanceFactorBps", Type: "uint64"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "performanceBonusCents", Type: "uint64"}}}, {ID: "DepartmentBonus", Requirement: "DepartmentBonus applies the department factor after performance. BR-13.", Source: "func DepartmentBonus(performanceBonusCents uint64, departmentFactorBps uint64) (departmentBonusCents uint64, departmentBonusError error) {\n\treturn scaled(performanceBonusCents, departmentFactorBps)\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "performanceBonusCents", Type: "uint64"}, {Name: "departmentFactorBps", Type: "uint64"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "departmentBonusCents", Type: "uint64"}}}, {ID: "CompanyBonus", Requirement: "CompanyBonus applies the company factor after the department factor. BR-14.", Source: "func CompanyBonus(departmentBonusCents uint64, companyFactorBps uint64) (companyBonusCents uint64, companyBonusError error) {\n\treturn scaled(departmentBonusCents, companyFactorBps)\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "departmentBonusCents", Type: "uint64"}, {Name: "companyFactorBps", Type: "uint64"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "companyBonusCents", Type: "uint64"}}}, {ID: "TenureAward", Requirement: "TenureAward adds 50,000 cents for at least 36 months of service. BR-15.", Source: "func TenureAward(tenureMonths uint16) (tenureAwardCents uint64) {\n\tif tenureMonths >= 36 {\n\t\treturn 50_000\n\t}\n\treturn 0\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "tenureMonths", Type: "uint16"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "tenureAwardCents", Type: "uint64"}}}, {ID: "RetentionAward", Requirement: "RetentionAward adds 75,000 cents for critical skills with good performance. BR-16.", Source: "func RetentionAward(criticalSkill bool, goodPerformance bool) (retentionAwardCents uint64) {\n\tif criticalSkill && goodPerformance {\n\t\treturn 75_000\n\t}\n\treturn 0\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "criticalSkill", Type: "bool"}, {Name: "goodPerformance", Type: "bool"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "retentionAwardCents", Type: "uint64"}}}, {ID: "ProposedBonus", Requirement: "ProposedBonus sums the company-adjusted bonus and both awards. BR-17.", Source: "func ProposedBonus(companyBonusCents uint64, tenureAwardCents uint64, retentionAwardCents uint64) (proposedBonusCents uint64, proposedBonusError error) {\n\treturn sum(companyBonusCents, tenureAwardCents, retentionAwardCents)\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "companyBonusCents", Type: "uint64"}, {Name: "tenureAwardCents", Type: "uint64"}, {Name: "retentionAwardCents", Type: "uint64"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "proposedBonusCents", Type: "uint64"}}}, {ID: "EligibleBonus", Requirement: "EligibleBonus allows a payment only for eligible employees. BR-18.", Source: "func EligibleBonus(bonusEligible bool, proposedBonusCents uint64) (eligibleBonusCents uint64) {\n\tif bonusEligible {\n\t\treturn proposedBonusCents\n\t}\n\treturn 0\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "bonusEligible", Type: "bool"}, {Name: "proposedBonusCents", Type: "uint64"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "eligibleBonusCents", Type: "uint64"}}}, {ID: "CappedBonus", Requirement: "CappedBonus caps the eligible bonus at the employee's allocated budget. BR-19.", Source: "func CappedBonus(eligibleBonusCents uint64, employeeBudgetCents uint64) (cappedBonusCents uint64) {\n\treturn min(eligibleBonusCents, employeeBudgetCents)\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "eligibleBonusCents", Type: "uint64"}, {Name: "employeeBudgetCents", Type: "uint64"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "cappedBonusCents", Type: "uint64"}}}, {ID: "FinanceRequired", Requirement: "FinanceRequired requires finance approval strictly above 200,000 cents. BR-20.", Source: "func FinanceRequired(cappedBonusCents uint64) (financeRequired bool) {\n\treturn cappedBonusCents > 200_000\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "cappedBonusCents", Type: "uint64"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "financeRequired", Type: "bool"}}}, {ID: "ApprovalsSatisfied", Requirement: "ApprovalsSatisfied requires manager approval and any required finance approval. BR-21.", Source: "func ApprovalsSatisfied(managerApproved bool, financeRequired bool, financeApproved bool) (approvalsSatisfied bool) {\n\treturn managerApproved && (!financeRequired || financeApproved)\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "managerApproved", Type: "bool"}, {Name: "financeRequired", Type: "bool"}, {Name: "financeApproved", Type: "bool"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "approvalsSatisfied", Type: "bool"}}}, {ID: "FinalBonus", Requirement: "FinalBonus releases the capped bonus only when approvals pass. BR-22.", Source: "func FinalBonus(approvalsSatisfied bool, cappedBonusCents uint64) (finalBonusCents uint64) {\n\tif approvalsSatisfied {\n\t\treturn cappedBonusCents\n\t}\n\treturn 0\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "approvalsSatisfied", Type: "bool"}, {Name: "cappedBonusCents", Type: "uint64"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "finalBonusCents", Type: "uint64"}}}, {ID: "PaymentReady", Requirement: "PaymentReady emits a fact only for a positive final bonus. BR-23.", Source: "func PaymentReady(finalBonusCents uint64) (paymentReadyCents *uint64) {\n\tif finalBonusCents > 0 {\n\t\treturn &finalBonusCents\n\t}\n\treturn nil\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "finalBonusCents", Type: "uint64"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "paymentReadyCents", Type: "*uint64"}}}, {ID: "ReviewRequired", Requirement: "ReviewRequired emits approval_pending for a positive bonus awaiting approval. BR-24.", Source: "func ReviewRequired(cappedBonusCents uint64, approvalsSatisfied bool) (reviewRequired *string) {\n\tif cappedBonusCents > 0 && !approvalsSatisfied {\n\t\treason := \"approval_pending\"\n\t\treturn &reason\n\t}\n\treturn nil\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "cappedBonusCents", Type: "uint64"}, {Name: "approvalsSatisfied", Type: "bool"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "reviewRequired", Type: "*string"}}}, {ID: "TotalCompensation", Requirement: "TotalCompensation adds annual salary and the final bonus. BR-25.", Source: "func TotalCompensation(salaryCents uint64, finalBonusCents uint64) (totalCompensationCents uint64, totalCompensationError error) {\n\treturn sum(salaryCents, finalBonusCents)\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "salaryCents", Type: "uint64"}, {Name: "finalBonusCents", Type: "uint64"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "totalCompensationCents", Type: "uint64"}}}, {ID: "PaymentReference", Requirement: "PaymentReference emits a reference only when a payment-ready fact exists. BR-26.", Source: "func PaymentReference(employeeID string, paymentReadyCents *uint64) (paymentReference *string) {\n\tif paymentReadyCents == nil {\n\t\treturn nil\n\t}\n\treference := fmt.Sprintf(\"BONUS-%s-%d\", employeeID, *paymentReadyCents)\n\treturn &reference\n}", Inputs: []_infergo_runtime.FactSpec{{Name: "employeeID", Type: "string"}, {Name: "paymentReadyCents", Type: "*uint64"}}, Outputs: []_infergo_runtime.FactSpec{{Name: "paymentReference", Type: "*string"}}}}}
+}
+
+// ViewerCase provides typed inputs for a saved HTML scenario.
+type ViewerCase = _infergo_runtime.ViewerCase[Inputs]
+
+// ExportHTML evaluates scenarios once and exports an offline graph and inspector.
+// Failed evaluations remain inspectable. An empty case list exports only topology.
+func ExportHTML(ctx _infergo_context.Context, title string, cases []ViewerCase) (string, error) {
+	return _infergo_runtime.ExportHTML(ctx, title, Ruleset(), cases, EvaluateTrace)
+}
+
+// EvaluateTrace captures diagnostic values without changing result or error semantics.
+func EvaluateTrace(ctx _infergo_context.Context, input Inputs, options _infergo_runtime.Options) (Outputs, _infergo_runtime.Snapshot, error) {
+	snapshot := _infergo_runtime.Snapshot{Inputs: map[string]string{"active": _infergo_runtime.FormatValue(input.Active), "companyTargetMet": _infergo_runtime.FormatValue(input.CompanyTargetMet), "criticalSkill": _infergo_runtime.FormatValue(input.CriticalSkill), "department": _infergo_runtime.FormatValue(input.Department), "disciplinaryHold": _infergo_runtime.FormatValue(input.DisciplinaryHold), "employeeBudgetCents": _infergo_runtime.FormatValue(input.EmployeeBudgetCents), "employeeID": _infergo_runtime.FormatValue(input.EmployeeID), "financeApproved": _infergo_runtime.FormatValue(input.FinanceApproved), "managerApproved": _infergo_runtime.FormatValue(input.ManagerApproved), "performanceScore": _infergo_runtime.FormatValue(input.PerformanceScore), "role": _infergo_runtime.FormatValue(input.Role), "salaryCents": _infergo_runtime.FormatValue(input.SalaryCents), "tenureMonths": _infergo_runtime.FormatValue(input.TenureMonths), "trainingComplete": _infergo_runtime.FormatValue(input.TrainingComplete)}, Trace: []_infergo_runtime.RuleTrace{{Rule: "GoodPerformance", Kind: "not_run", Facts: map[string]string{}}, {Rule: "ExceptionalPerformance", Kind: "not_run", Facts: map[string]string{}}, {Rule: "TenureEligible", Kind: "not_run", Facts: map[string]string{}}, {Rule: "ConductClear", Kind: "not_run", Facts: map[string]string{}}, {Rule: "EmploymentEligible", Kind: "not_run", Facts: map[string]string{}}, {Rule: "IsBonusEligible", Kind: "not_run", Facts: map[string]string{}}, {Rule: "RoleRate", Kind: "not_run", Facts: map[string]string{}}, {Rule: "DepartmentFactor", Kind: "not_run", Facts: map[string]string{}}, {Rule: "CompanyFactor", Kind: "not_run", Facts: map[string]string{}}, {Rule: "PerformanceFactor", Kind: "not_run", Facts: map[string]string{}}, {Rule: "BaseBonus", Kind: "not_run", Facts: map[string]string{}}, {Rule: "PerformanceBonus", Kind: "not_run", Facts: map[string]string{}}, {Rule: "DepartmentBonus", Kind: "not_run", Facts: map[string]string{}}, {Rule: "CompanyBonus", Kind: "not_run", Facts: map[string]string{}}, {Rule: "TenureAward", Kind: "not_run", Facts: map[string]string{}}, {Rule: "RetentionAward", Kind: "not_run", Facts: map[string]string{}}, {Rule: "ProposedBonus", Kind: "not_run", Facts: map[string]string{}}, {Rule: "EligibleBonus", Kind: "not_run", Facts: map[string]string{}}, {Rule: "CappedBonus", Kind: "not_run", Facts: map[string]string{}}, {Rule: "FinanceRequired", Kind: "not_run", Facts: map[string]string{}}, {Rule: "ApprovalsSatisfied", Kind: "not_run", Facts: map[string]string{}}, {Rule: "FinalBonus", Kind: "not_run", Facts: map[string]string{}}, {Rule: "PaymentReady", Kind: "not_run", Facts: map[string]string{}}, {Rule: "ReviewRequired", Kind: "not_run", Facts: map[string]string{}}, {Rule: "TotalCompensation", Kind: "not_run", Facts: map[string]string{}}, {Rule: "PaymentReference", Kind: "not_run", Facts: map[string]string{}}}}
+	result, err := _infergoEvaluate(ctx, input, options, &snapshot)
+	if err != nil {
+		snapshot.Error = err.Error()
+	}
+	return result, snapshot, err
+}
+
 // Evaluate computes the requested output facts. Inputs and their referenced
 // data must remain immutable until evaluation returns. Errors discard all outputs.
 func Evaluate(ctx _infergo_context.Context, input Inputs, options _infergo_runtime.Options) (Outputs, error) {
+	return _infergoEvaluate(ctx, input, options, nil)
+}
+func _infergoEvaluate(ctx _infergo_context.Context, input Inputs, options _infergo_runtime.Options, snapshot *_infergo_runtime.Snapshot) (Outputs, error) {
 	var facts struct {
 		goodPerformance        bool
 		exceptionalPerformance bool
@@ -73,7 +100,10 @@ func Evaluate(ctx _infergo_context.Context, input Inputs, options _infergo_runti
 		totalCompensationCents uint64
 		paymentReference       *string
 	}
-	err := _infergoPlan.Run(ctx, options, func(ctx _infergo_context.Context, ruleID int) error {
+	err := _infergoPlan.Run(ctx, options, func(ctx _infergo_context.Context, ruleID int) (ruleErr error) {
+		if snapshot != nil {
+			defer func() { snapshot.Trace[ruleID].Complete(ruleErr) }()
+		}
 		switch ruleID {
 		case 0:
 			value0, err := GoodPerformance(input.PerformanceScore)
@@ -81,26 +111,44 @@ func Evaluate(ctx _infergo_context.Context, input Inputs, options _infergo_runti
 				return err
 			}
 			facts.goodPerformance = value0
+			if snapshot != nil {
+				snapshot.Trace[0].Facts = map[string]string{"goodPerformance": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 1:
 			value0 := ExceptionalPerformance(input.PerformanceScore)
 			facts.exceptionalPerformance = value0
+			if snapshot != nil {
+				snapshot.Trace[1].Facts = map[string]string{"exceptionalPerformance": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 2:
 			value0 := TenureEligible(input.TenureMonths)
 			facts.tenureEligible = value0
+			if snapshot != nil {
+				snapshot.Trace[2].Facts = map[string]string{"tenureEligible": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 3:
 			value0 := ConductClear(input.DisciplinaryHold)
 			facts.conductClear = value0
+			if snapshot != nil {
+				snapshot.Trace[3].Facts = map[string]string{"conductClear": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 4:
 			value0 := EmploymentEligible(input.Active, facts.tenureEligible)
 			facts.employmentEligible = value0
+			if snapshot != nil {
+				snapshot.Trace[4].Facts = map[string]string{"employmentEligible": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 5:
 			value0 := IsBonusEligible(facts.employmentEligible, facts.goodPerformance, facts.conductClear, input.TrainingComplete)
 			facts.bonusEligible = value0
+			if snapshot != nil {
+				snapshot.Trace[5].Facts = map[string]string{"bonusEligible": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 6:
 			value0, err := RoleRate(input.Role)
@@ -108,6 +156,9 @@ func Evaluate(ctx _infergo_context.Context, input Inputs, options _infergo_runti
 				return err
 			}
 			facts.roleRateBps = value0
+			if snapshot != nil {
+				snapshot.Trace[6].Facts = map[string]string{"roleRateBps": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 7:
 			value0, err := DepartmentFactor(input.Department)
@@ -115,14 +166,23 @@ func Evaluate(ctx _infergo_context.Context, input Inputs, options _infergo_runti
 				return err
 			}
 			facts.departmentFactorBps = value0
+			if snapshot != nil {
+				snapshot.Trace[7].Facts = map[string]string{"departmentFactorBps": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 8:
 			value0 := CompanyFactor(input.CompanyTargetMet)
 			facts.companyFactorBps = value0
+			if snapshot != nil {
+				snapshot.Trace[8].Facts = map[string]string{"companyFactorBps": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 9:
 			value0 := PerformanceFactor(facts.exceptionalPerformance)
 			facts.performanceFactorBps = value0
+			if snapshot != nil {
+				snapshot.Trace[9].Facts = map[string]string{"performanceFactorBps": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 10:
 			value0, err := BaseBonus(input.SalaryCents, facts.roleRateBps)
@@ -130,6 +190,9 @@ func Evaluate(ctx _infergo_context.Context, input Inputs, options _infergo_runti
 				return err
 			}
 			facts.baseBonusCents = value0
+			if snapshot != nil {
+				snapshot.Trace[10].Facts = map[string]string{"baseBonusCents": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 11:
 			value0, err := PerformanceBonus(facts.baseBonusCents, facts.performanceFactorBps)
@@ -137,6 +200,9 @@ func Evaluate(ctx _infergo_context.Context, input Inputs, options _infergo_runti
 				return err
 			}
 			facts.performanceBonusCents = value0
+			if snapshot != nil {
+				snapshot.Trace[11].Facts = map[string]string{"performanceBonusCents": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 12:
 			value0, err := DepartmentBonus(facts.performanceBonusCents, facts.departmentFactorBps)
@@ -144,6 +210,9 @@ func Evaluate(ctx _infergo_context.Context, input Inputs, options _infergo_runti
 				return err
 			}
 			facts.departmentBonusCents = value0
+			if snapshot != nil {
+				snapshot.Trace[12].Facts = map[string]string{"departmentBonusCents": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 13:
 			value0, err := CompanyBonus(facts.departmentBonusCents, facts.companyFactorBps)
@@ -151,14 +220,23 @@ func Evaluate(ctx _infergo_context.Context, input Inputs, options _infergo_runti
 				return err
 			}
 			facts.companyBonusCents = value0
+			if snapshot != nil {
+				snapshot.Trace[13].Facts = map[string]string{"companyBonusCents": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 14:
 			value0 := TenureAward(input.TenureMonths)
 			facts.tenureAwardCents = value0
+			if snapshot != nil {
+				snapshot.Trace[14].Facts = map[string]string{"tenureAwardCents": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 15:
 			value0 := RetentionAward(input.CriticalSkill, facts.goodPerformance)
 			facts.retentionAwardCents = value0
+			if snapshot != nil {
+				snapshot.Trace[15].Facts = map[string]string{"retentionAwardCents": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 16:
 			value0, err := ProposedBonus(facts.companyBonusCents, facts.tenureAwardCents, facts.retentionAwardCents)
@@ -166,34 +244,58 @@ func Evaluate(ctx _infergo_context.Context, input Inputs, options _infergo_runti
 				return err
 			}
 			facts.proposedBonusCents = value0
+			if snapshot != nil {
+				snapshot.Trace[16].Facts = map[string]string{"proposedBonusCents": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 17:
 			value0 := EligibleBonus(facts.bonusEligible, facts.proposedBonusCents)
 			facts.eligibleBonusCents = value0
+			if snapshot != nil {
+				snapshot.Trace[17].Facts = map[string]string{"eligibleBonusCents": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 18:
 			value0 := CappedBonus(facts.eligibleBonusCents, input.EmployeeBudgetCents)
 			facts.cappedBonusCents = value0
+			if snapshot != nil {
+				snapshot.Trace[18].Facts = map[string]string{"cappedBonusCents": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 19:
 			value0 := FinanceRequired(facts.cappedBonusCents)
 			facts.financeRequired = value0
+			if snapshot != nil {
+				snapshot.Trace[19].Facts = map[string]string{"financeRequired": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 20:
 			value0 := ApprovalsSatisfied(input.ManagerApproved, facts.financeRequired, input.FinanceApproved)
 			facts.approvalsSatisfied = value0
+			if snapshot != nil {
+				snapshot.Trace[20].Facts = map[string]string{"approvalsSatisfied": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 21:
 			value0 := FinalBonus(facts.approvalsSatisfied, facts.cappedBonusCents)
 			facts.finalBonusCents = value0
+			if snapshot != nil {
+				snapshot.Trace[21].Facts = map[string]string{"finalBonusCents": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 22:
 			value0 := PaymentReady(facts.finalBonusCents)
 			facts.paymentReadyCents = value0
+			if snapshot != nil {
+				snapshot.Trace[22].Facts = map[string]string{"paymentReadyCents": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 23:
 			value0 := ReviewRequired(facts.cappedBonusCents, facts.approvalsSatisfied)
 			facts.reviewRequired = value0
+			if snapshot != nil {
+				snapshot.Trace[23].Facts = map[string]string{"reviewRequired": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 24:
 			value0, err := TotalCompensation(input.SalaryCents, facts.finalBonusCents)
@@ -201,10 +303,16 @@ func Evaluate(ctx _infergo_context.Context, input Inputs, options _infergo_runti
 				return err
 			}
 			facts.totalCompensationCents = value0
+			if snapshot != nil {
+				snapshot.Trace[24].Facts = map[string]string{"totalCompensationCents": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		case 25:
 			value0 := PaymentReference(input.EmployeeID, facts.paymentReadyCents)
 			facts.paymentReference = value0
+			if snapshot != nil {
+				snapshot.Trace[25].Facts = map[string]string{"paymentReference": _infergo_runtime.FormatValue(value0)}
+			}
 			return nil
 		default:
 			panic("infergo: invalid rule ID")

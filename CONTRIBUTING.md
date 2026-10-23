@@ -42,8 +42,10 @@ go generate ./...
 git diff --exit-code -- ruleset/bonus/zz_infergo_gen.go
 ```
 
-There is currently no checked-in CI workflow. These commands can be used in CI;
-the generated-file comparison must run after generation. A docs-only change
+The CI workflow runs these checks, verifies the viewer bundle, and tests the
+HTML viewer in Chromium and WebKit, including narrow mobile widths. Follow the
+[viewer development instructions](docs/visualization.md#maintain-the-viewer)
+when changing the viewer. A docs-only change
 should also check relative links and compile any new complete Go examples.
 
 ## Choose the relevant tests
