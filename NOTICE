@@ -1,0 +1,6 @@
+Infergo
+Copyright 2026 Vít Chrubasík
+
+The viewer includes code adapted from Inferrum under the Apache License 2.0.
+See viewer/LICENSE-Inferrum.txt. The generated viewer bundle also retains the
+license notices for its third-party layout dependencies.

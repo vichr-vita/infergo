@@ -133,4 +133,4 @@ Existing commit subjects use conventional prefixes such as `feat:`. Keep change
 titles short, explain the problem and resulting behavior, and report the tests
 you ran. For a bug report, provide a minimal ruleset or plan that reproduces it.
 
-The checkout currently contains no license file.
+Contributions are licensed under the [Apache License 2.0](LICENSE).

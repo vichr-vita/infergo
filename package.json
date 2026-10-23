@@ -1,5 +1,6 @@
 {
   "name": "infergo-viewer",
+  "license": "Apache-2.0",
   "private": true,
   "scripts": {
     "build:viewer": "tsc -p viewer/tsconfig.json && node viewer/build.mjs",
