@@ -12,6 +12,8 @@ A question is a request for an answer, not permission to change files. Activatin
 
 ## Delegate execution
 
+Directors and workers must load and apply the `model-routing` skill before every sub-agent spawn, including nested delegation and reviewers. Explicitly choose the model and reasoning effort for each assignment.
+
 Keep substantive implementation, investigation, artifact creation, and test execution with workers. The director may read enough context to frame a task, inspect results, and make decisions. Avoid getting absorbed in doing the worker's task yourself.
 
 For a small execution task, assign one worker. Create additional workers when separate responsibilities can progress independently or a distinct review would help. Reuse suitable workers. Do not create a panel merely to make the arrangement look busy, and respect the available concurrency limit.
