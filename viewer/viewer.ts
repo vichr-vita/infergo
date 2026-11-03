@@ -189,7 +189,29 @@ data.edges.forEach((edge, index) => {
     labelpos: 'c',
   }, String(index));
 });
-if (data.rules.length) layout(graph);
+// A layout may return NaN geometry without throwing. Never draw a partial map.
+function validateGeometry() {
+  const { width, height } = graph.graph();
+  const positive = (value: number | undefined): value is number => value !== undefined && Number.isFinite(value) && value > 0;
+  if (!positive(width) || !positive(height)) throw new Error('Invalid diagram bounds');
+  const finitePoint = (x: number | undefined, y: number | undefined) => x !== undefined && y !== undefined
+    && Number.isFinite(x) && Number.isFinite(y);
+  const rectangle = (geometry: NodeLabel | EdgeLabel) => {
+    const { x, y, width, height } = geometry;
+    return finitePoint(x, y) && positive(width) && positive(height);
+  };
+  for (const node of graph.nodes()) {
+    if (!rectangle(graph.node(node))) throw new Error(`Invalid rule geometry: ${node}`);
+  }
+  for (const edge of graph.edges()) {
+    const geometry = graph.edge(edge);
+    if (!rectangle(geometry) || !geometry.points || geometry.points.length < 2
+      || !geometry.points.every(point => finitePoint(point.x, point.y))) {
+      throw new Error(`Invalid fact geometry: ${edge.name}`);
+    }
+  }
+}
+let diagramReady = false;
 
 const nodeElements: { rule: Rule; node: SVGAElement; value: SVGTextElement; title: SVGTitleElement }[] = [];
 const edgeElements: { from: string; to: string; path: SVGPathElement; label: SVGGElement }[] = [];
@@ -317,7 +339,7 @@ function render() {
       if (rule.inputs.some(fact => producers.get(fact.name) === currentRule?.id)) neighbors.add(rule.id);
     }
   }
-  const order = [...data.rules].sort((a, b) => (graph.node(String(data.rules.indexOf(a)))?.y ?? 0) - (graph.node(String(data.rules.indexOf(b)))?.y ?? 0));
+  const order = diagramReady ? [...data.rules].sort((a, b) => (graph.node(String(data.rules.indexOf(a)))?.y ?? 0) - (graph.node(String(data.rules.indexOf(b)))?.y ?? 0)) : data.rules;
   for (const rule of order) {
     if (query ? !matches(rule) : !neighbors.has(rule.id)) continue;
     const row = element('li');
@@ -350,15 +372,33 @@ for (const rule of data.rules) ruleSelect.add(new Option(`${rule.id}()`, rule.id
 ruleSelect.disabled = !data.rules.length;
 required('#empty', HTMLElement).hidden = !!data.rules.length;
 required('.mobile-caption', HTMLElement).hidden = !data.rules.length;
-diagram.toggleAttribute('hidden', !data.rules.length);
-buildDiagram();
+try {
+  if (data.rules.length) {
+    layout(graph);
+    validateGeometry();
+    buildDiagram();
+    diagramReady = true;
+  }
+} catch (error) {
+  console.error('Rule dependency diagram unavailable.', error);
+  diagram.replaceChildren();
+  nodeElements.length = 0;
+  edgeElements.length = 0;
+  const message = required('#layout-error', HTMLElement);
+  message.textContent = 'The dependency diagram could not be drawn. Select a rule to inspect its source and values.';
+  message.hidden = false;
+  required('#graph-region', HTMLElement).dataset.layoutFailed = 'true';
+}
+diagram.toggleAttribute('hidden', !diagramReady);
+required('.diagram-controls', HTMLElement).hidden = !diagramReady;
+required('.legend', HTMLElement).hidden = !diagramReady;
 required('#diagram-title', HTMLElement).textContent = `${data.title} · rule dependencies`;
 const viewport = required('#diagram-viewport', HTMLDivElement);
-viewport.hidden = !data.rules.length;
-required('#diagram-fit', HTMLButtonElement).disabled = !data.rules.length;
-required('#diagram-actual', HTMLButtonElement).disabled = !data.rules.length;
-required('#diagram-zoom-in', HTMLButtonElement).disabled = !data.rules.length;
-required('#diagram-zoom-out', HTMLButtonElement).disabled = !data.rules.length;
+viewport.hidden = !diagramReady;
+required('#diagram-fit', HTMLButtonElement).disabled = !diagramReady;
+required('#diagram-actual', HTMLButtonElement).disabled = !diagramReady;
+required('#diagram-zoom-in', HTMLButtonElement).disabled = !diagramReady;
+required('#diagram-zoom-out', HTMLButtonElement).disabled = !diagramReady;
 const navigation = attachDiagramNavigation(viewport, diagram, required('#diagram-fit', HTMLButtonElement), required('#diagram-actual', HTMLButtonElement), required('#diagram-zoom-in', HTMLButtonElement), required('#diagram-zoom-out', HTMLButtonElement));
 function centerSelection() {
   const selected = nodeElements.find(({ rule }) => rule === currentRule)?.node;

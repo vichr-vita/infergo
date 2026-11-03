@@ -108,3 +108,80 @@ test('topology, empty graph, and malformed links remain usable', async ({ page }
   await expect(page.locator('#rule-select')).toBeDisabled();
   expect(errors).toEqual([]);
 });
+
+for (const width of [1440, 390]) {
+  test(`parallel fact edges retain finite geometry and inspection at ${width}px`, async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(url('parallel'));
+    await expect(page.locator('#rule-title')).toHaveText('Rule3()');
+    await expect(page.locator('#diagram .rule-node')).toHaveCount(4);
+    await expect(page.locator('#diagram .edge')).toHaveCount(7);
+    await expect(page.locator('#diagram .edge-label')).toHaveCount(7);
+    const geometry = await page.locator('#diagram').evaluate(diagram => {
+      const { width, height } = diagram.viewBox.baseVal;
+      const inside = point => Number.isFinite(point.x) && Number.isFinite(point.y) && point.x >= 0 && point.y >= 0 && point.x <= width && point.y <= height;
+      return {
+        bounds: Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0,
+        nodes: [...diagram.querySelectorAll('.rule-node rect, .edge-label rect')].every(rect => {
+          const x = Number(rect.getAttribute('x')), y = Number(rect.getAttribute('y'));
+          const w = Number(rect.getAttribute('width')), h = Number(rect.getAttribute('height'));
+          return w > 0 && h > 0 && inside({ x, y }) && inside({ x: x + w, y: y + h });
+        }),
+        paths: [...diagram.querySelectorAll('.edge')].every(path => {
+          const points = [...path.getAttribute('d').matchAll(/[ML]([^, ]+),([^ ]+)/g)].map(match => ({ x: Number(match[1]), y: Number(match[2]) }));
+          return points.length >= 2 && points.every(inside) && path.getTotalLength() > 0;
+        }),
+      };
+    });
+    expect(geometry).toEqual({ bounds: true, nodes: true, paths: true });
+    await page.locator('#case-select').selectOption('second');
+    await expect(page.locator('#outputs')).toContainText('2');
+    await page.locator('#inputs').getByRole('link', { name: '← Rule1()' }).click();
+    await expect(page.locator('#rule-title')).toHaveText('Rule1()');
+    await expect(page.locator('#source')).toContainText('func Rule1()');
+    await page.locator('#rule-select').selectOption('Rule2');
+    await expect(page.locator('#inputs li')).toHaveCount(4);
+    await expect(page.locator('#inputs')).toContainText('fact1');
+    await expect(page.locator('#inputs')).toContainText('fact2');
+    await expect(page.locator('#inputs')).toContainText('fact3');
+    await fits(page);
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const width of [1440, 390]) {
+  for (const fault of ['throw', 'bounds', 'node', 'edge']) {
+    test(`layout ${fault} failure preserves inspection at ${width}px`, async ({ page }) => {
+      const errors = [];
+      const diagnostics = [];
+      page.on('pageerror', error => errors.push(error.message));
+      page.on('console', message => { if (message.type() === 'error') diagnostics.push(message.text()); });
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(url(`layout-${fault}`));
+      await expect(page.locator('#layout-error')).toBeVisible();
+      await expect(page.locator('#layout-error')).toContainText('diagram could not be drawn');
+      await expect(page.locator('#evaluation-error')).toBeHidden();
+      await expect(page.locator('#diagram-viewport')).toBeHidden();
+      await expect(page.locator('#diagram .rule-node, #diagram .edge')).toHaveCount(0);
+      await expect(page.locator('#diagram-fit')).toBeDisabled();
+      await expect(page.locator('#rule-list')).toBeVisible();
+      await expect(page.locator('#rule-title')).toHaveText('Rule3()');
+      await expect(page.locator('#rule-status')).toHaveText('Succeeded');
+      await page.locator('#case-select').selectOption('second');
+      await expect(page.locator('#outputs')).toContainText('2');
+      await page.locator('#inputs').getByRole('link', { name: '← Rule1()' }).click();
+      await expect(page.locator('#source')).toContainText('func Rule1()');
+      await page.locator('#rule-search').fill('Rule2');
+      await expect(page.locator('#rule-list > li')).toHaveCount(1);
+      await page.locator('#rule-list > li > a').click();
+      await expect(page.locator('#rule-title')).toHaveText('Rule2()');
+      await expect(page.locator('#inputs li')).toHaveCount(4);
+      await fits(page);
+      expect(errors).toEqual([]);
+      expect(diagnostics).toHaveLength(1);
+      expect(diagnostics[0]).toContain('Rule dependency diagram unavailable.');
+    });
+  }
+}
