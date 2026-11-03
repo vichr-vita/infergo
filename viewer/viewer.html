@@ -72,7 +72,7 @@
     .legend span { display: inline-flex; align-items: center; gap: 6px; }
     .box { width: 13px; height: 11px; border: 1px solid #fff; }
     .dashed { border-style: dashed; }
-    #evaluation-error { border-left: 2px solid #ff9999; padding: 12px 16px; overflow-wrap: anywhere; }
+    #evaluation-error, #layout-error { border-left: 2px solid #ff9999; padding: 12px 16px; overflow-wrap: anywhere; }
     #diagram .search-match rect { stroke: #fff; stroke-width: 3; }
     #back-to-map, .mobile-caption { display: none; }
     .note { font-size: 12px; margin-top: 22px; }
@@ -85,6 +85,8 @@
     #rule-list > li > a:not([aria-current="true"]) { color: #fff; }
     #rule-list > li > p { font-size: 12px; margin: 4px 0; overflow-wrap: anywhere; }
     #rule-list > li > .rule-description { font-size: 13px; margin-bottom: 12px; }
+    #graph-region[data-layout-failed] #rule-list { display: block; }
+    #graph-region[data-layout-failed] .mobile-caption { display: block; }
     #empty { padding: 30px 0; }
     [hidden] { display: none !important; }
     @media (max-width: 1100px) { .workspace { grid-template-columns: minmax(0,1fr); } #inspector { border-left: 0; padding: 22px 0 0; border-top: 1px solid #555; position: static; max-height: none; overflow-y: visible; } }
@@ -122,6 +124,7 @@
     </div>
     <div class="summary"><span id="case-caption"></span><span id="counts"></span><span id="run-summary"></span></div>
     <p id="evaluation-error" role="status" hidden></p>
+    <p id="layout-error" role="status" hidden></p>
     <div class="workspace">
       <div id="graph-region">
         <div class="diagram-heading"><h2 id="diagram-title">Rule dependencies</h2><div class="diagram-controls" aria-label="Diagram size"><button id="diagram-zoom-in" type="button" aria-label="Zoom in">+</button><button id="diagram-zoom-out" type="button" aria-label="Zoom out">−</button><button id="diagram-fit" type="button" aria-pressed="false">Fit map</button><button id="diagram-actual" type="button" aria-pressed="true">Actual size</button></div></div>
