@@ -34,13 +34,15 @@ git diff --check
 ```
 
 Review changes to `ruleset/bonus/zz_infergo_gen.go` whenever you change emission
-or the example's graph. Commit generated changes alongside their source. On a
-commit expected to contain current generated output, check reproducibility with:
+or the example's graph. Commit generated changes alongside their source. To
+confirm that the generated output is current, run:
 
 ```sh
-go generate ./...
-git diff --exit-code -- ruleset/bonus/zz_infergo_gen.go
+INFERGEN_CHECK=true go generate ./...
 ```
+
+This writes nothing and fails if the generated file differs from what the
+generator would produce.
 
 The CI workflow runs these checks, verifies the viewer bundle, and tests the
 HTML viewer in Chromium and WebKit, including narrow mobile widths. Follow the
@@ -53,8 +55,8 @@ should also check relative links and compile any new complete Go examples.
 | Area | Command | Coverage |
 | --- | --- | --- |
 | Runtime | `go test -race .` | Dependency order, bounded concurrency, readiness, cancellation, failure cleanup, concurrent evaluations, and invalid plans. |
-| Generator | `go test ./internal/generate` | Generated-code compilation and execution, pruning, nil facts, imported and defined types, regeneration, and rejected declarations. |
-| CLI | `go test ./cmd/infergen` | Flags, config discovery, precedence, help, and preserving existing output on errors. |
+| Generator | `go test ./internal/generate` | Generated-code compilation and execution, pruning, nil facts, imported and defined types, regeneration, stale contract guards, and rejected declarations. |
+| CLI | `go test ./cmd/infergen` | Flags, config discovery, precedence, help, check mode, and preserving existing output on errors. |
 | Bonus policy | `go test -race ./ruleset/bonus` | Fixed scenarios, arithmetic, boundaries, invalid values, and the runnable example. |
 
 Generator tests create temporary Go modules and compile the emitted source. The

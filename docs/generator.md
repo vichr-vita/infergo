@@ -35,6 +35,7 @@ generation directive.
 | `--inputs` | `INFERGEN_INPUTS` | `inputs` | `Inputs` |
 | `--outputs` | `INFERGEN_OUTPUTS` | `outputs` | `Outputs` |
 | `--out` | `INFERGEN_OUT` | `out` | `zz_infergo_gen.go` |
+| `--check` | `INFERGEN_CHECK` | `check` | `false`. See [Keep generation reproducible](#keep-generation-reproducible). |
 | `--config` | `INFERGEN_CONFIG` | See below. | Discover `infergen.*` in the current directory. |
 | `-h`, `--help` | None. | None. | Print help without loading a ruleset or configuration. |
 
@@ -136,6 +137,8 @@ of `Evaluate` in another package or in tests.
 The output contains:
 
 - A generated-code header and the ruleset's package declaration.
+- A struct conversion for each of the input and output contracts, which stops
+  compiling if a contract's field names, types, or order change after generation.
 - An unexported `_infergoPlan`, built once during package initialization.
 - An exported `Evaluate` function using your selected input and output types.
 - `Ruleset` metadata, `EvaluateTrace` diagnostic evaluation, and a typed
@@ -164,7 +167,7 @@ are often easier to maintain than several graph variants in one directory.
 On success, the CLI writes a temporary file in the output directory, sets its
 mode to `0644`, closes it, and renames it over the destination. It prints no
 success message. The destination is replaced, so choose a file reserved for
-generated code.
+generated code. With `--check`, the CLI compares instead and writes nothing.
 
 Generation or temporary-write failures leave an existing output untouched.
 Errors go to standard error with an `infergen:` prefix, and the process exits
@@ -175,10 +178,33 @@ errors may not. See [Troubleshooting](troubleshooting.md).
 
 Record the generator dependency in `go.mod` and `go.sum`. Use a generation
 directive that runs that selected version, and regenerate after changes to rule
-signatures, contract mappings, file selection, or generator version. Rule-body
-changes need no graph regeneration when signatures remain unchanged.
+signatures, rule bodies, doc comments, contract mappings, file selection, or
+generator version.
 
-Commit the generated file alongside its source, as this repository does. This
-allows consumers to build without invoking the generator. In CI, regenerate and
-check that the committed file remains unchanged. The [development
+A rule-body change alters evaluator behavior at the next compile without
+regeneration, because the generated code calls your function directly. The
+generated `Ruleset` metadata embeds each rule's source and doc comment, though.
+Until you regenerate, the viewer shows the old text and the check below fails.
+
+The compiler catches some staleness. The contract conversions in the generated
+file stop compiling when an input or output struct gains, loses, reorders, or
+retypes a field. Other changes still compile. Go types do not record parameter
+names, so renaming a parameter to another fact of the same type keeps the old
+wiring until you regenerate. Struct conversion ignores tags, so a changed `fact`
+tag behaves the same way.
+
+Check mode catches all of these. Commit the generated file alongside its source,
+as this repository does, so that consumers can build without invoking the
+generator. Then run this in CI:
+
+```sh
+INFERGEN_CHECK=true go generate ./...
+```
+
+The environment variable reaches every `infergen` process that `go generate`
+starts, so each package keeps its directive unchanged. `--check` does the same
+for a single run. Each process generates as usual, compares the result with the
+existing output file, and writes nothing. It exits silently when the file is
+current. When the file differs or is missing, it exits with status 1 and an error
+that names the file and tells the reader to run `go generate`. The [development
 guide](../CONTRIBUTING.md#verify-a-change) gives commands for this repository.

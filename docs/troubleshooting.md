@@ -48,7 +48,27 @@ reference](generator.md). Declaration constraints are covered in
 ## A generated evaluator is missing or stale
 
 `go build` and `go test` do not generate code. Run the package's `go generate`
-directive after changing signatures, contracts, or file selection.
+directive after changing signatures, rule bodies, doc comments, contracts, or
+file selection.
+
+A compile error on a struct conversion in the generated file means an input or
+output struct changed after generation:
+
+```text
+./zz_infergo_gen.go:20:3: cannot convert Outputs{} (value of struct type Outputs) to type struct{Total int}
+```
+
+The struct at the end of the message is the shape from the last generation. Run
+`go generate` to fix it. The generator ignores the stale file, so this works
+while the package does not compile.
+
+Renamed rule parameters and changed `fact` tags compile without any error and
+keep the old wiring. To find them, run `INFERGEN_CHECK=true go generate ./...`,
+which writes nothing. A stale package fails with
+`zz_infergo_gen.go is out of date; run go generate`, or `is missing` when there
+is no output file. The `running "go": exit status 1` line that follows gives the
+location of the package's directive. See [Keep generation
+reproducible](generator.md#keep-generation-reproducible).
 
 The generator ignores only the output path configured for this invocation. If
 you changed `--out`, an old generated file may still define `Evaluate` and
