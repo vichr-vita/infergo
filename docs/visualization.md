@@ -38,21 +38,23 @@ requires access to the same exported HTML file.
 Run this from your ruleset directory:
 
 ```sh
-infergen view --open
+go tool infergen view --rules rules.go --open
 ```
 
-If you installed the generator as a module tool, run `go tool infergen view
---open` instead. The command reads the same flags, `INFERGEN_` variables, and
-config file as generation, so pass `--rules` if you have no config file.
+The command reads the same flags, `INFERGEN_` variables, and config file as
+generation, so you can drop `--rules` if a config file selects your rules.
+`--open` works only on the command line.
 
-`infergen view` shows topology only: rules, facts, requirements, and source. It
+`go tool infergen view` shows topology only: rules, facts, requirements, and source. It
 never runs a rule, so the page has no scenarios or fact values. You write no Go
 program, and the command needs no generated file. The page reflects your current
 source even when the generated evaluator is stale.
 
-The page goes to `infergo-<package>.html` in the system temporary directory, and
-the command prints that path. Use `--html` to choose another file. See the
-[generator reference](generator.md#view-the-rule-graph) for every option.
+The page goes to `infergo-<package>-<hash>.html` in the system temporary
+directory, and the command prints that path. The hash comes from the ruleset
+directory, so same-named packages keep separate pages. Use `--html` to choose
+another `.html` or `.htm` file. The command only replaces files that are Infergo
+pages. See the [generator reference](generator.md#view-the-rule-graph) for every option.
 
 ## Export your own scenarios
 

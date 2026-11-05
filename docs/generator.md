@@ -28,7 +28,7 @@ the root. The included bonus package uses `go run ../../cmd/infergen` in its
 generation directive.
 
 To see the rule graph without generating anything, use
-[`infergen view`](#view-the-rule-graph).
+[`go tool infergen view`](#view-the-rule-graph).
 
 ## Flags and defaults
 
@@ -191,8 +191,9 @@ renames it over the destination. It then prints one line to standard error:
 infergen: example.com/rules: updated zz_infergo_gen.go (4 rules)
 ```
 
-If the content already matches, the CLI leaves the file alone and prints no such
-line, so a generation that changes nothing is quiet. The destination is replaced,
+If the content already matches, the CLI keeps the file, correcting only its mode
+if needed, and prints no such line, so a generation that changes nothing is
+quiet. The destination is replaced,
 so choose a file reserved for generated code. With `--check`, the CLI compares
 instead and writes nothing.
 
@@ -225,19 +226,17 @@ it directly, so an input read only by a pruned rule gets a warning as well. See
 
 ## View the rule graph
 
-`infergen view` exports the rule graph as an offline HTML page. Run it from the
-ruleset directory:
+`go tool infergen view` exports the rule graph as an offline HTML page. Run it
+from the ruleset directory:
 
 ```sh
-infergen view --rules rules.go --open
+go tool infergen view --rules rules.go --open
 ```
-
-When the module declares the generator as a tool, run `go tool infergen view`.
 
 | Flag | Environment variable | Config key | Default |
 | --- | --- | --- | --- |
-| `--html` | `INFERGEN_HTML` | `html` | `infergo-<package>.html` in the system temporary directory. |
-| `--open` | `INFERGEN_OPEN` | `open` | `false` |
+| `--html` | `INFERGEN_HTML` | `html` | `infergo-<package>-<hash>.html` in the system temporary directory. |
+| `--open` | None. | None. | `false` |
 
 `--rules`, `--inputs`, `--outputs`, `--out`, and `--config` work as they do for
 generation, with the same precedence. `--check` does not apply. `view` needs
@@ -246,17 +245,34 @@ generation, with the same precedence. `--check` does not apply. `view` needs
 The command runs the full validation and prints the same errors and warnings as
 generation, then writes the page and prints its path to standard output. It
 writes no Go file and doesn't need a generated file, so the page reflects the
-current source even when the generated evaluator is stale. It writes through a
-temporary file and rename, and sets mode `0600` because the page contains rule
-source. The page title is the package name.
+current source even when the generated evaluator is stale. The page title is the
+package name.
+
+The hash in the default file name comes from the absolute ruleset directory. Each
+directory reuses one path, and same-named packages in different directories don't
+collide.
+
+The output path must end in `.html` or `.htm`, and an existing file at that path
+must be an Infergo page, which the command recognizes by its `id="infergo-data"`
+marker. A rule file, a generated file, or any other existing file stops the
+command with an error that names the path and suggests `--html`. So does an
+existing file that can't be read. These checks apply to the default path too.
+
+The command writes through a temporary file and rename, and always leaves the
+page at mode `0600`, because it contains rule source. That holds when the content
+is unchanged too. The file then keeps its modification time, and only its mode
+changes.
 
 `view` never runs a rule, so the page shows topology only. To include scenarios
 and fact values, use the generated `ExportHTML`, as the
 [visualization guide](visualization.md#export-your-own-scenarios) describes.
 
 `--open` starts `xdg-open` on Linux, `open` on macOS, and `rundll32
-url.dll,FileProtocolHandler` on Windows. If that fails, the command exits with an
-error naming the file, and the file stays in place.
+url.dll,FileProtocolHandler` on Windows, and does not wait for it. If the program
+can't start, the command exits with an error naming the file, and the file stays
+in place. A failure inside the program after it starts goes undetected. `--open`
+exists only as a command-line flag, so a shared config file or environment
+variable can't open a browser.
 
 ## Keep generation reproducible
 

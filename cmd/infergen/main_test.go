@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -42,6 +44,15 @@ func clearEnvironment(t *testing.T) {
 	for _, key := range []string{"CONFIG", "RULES", "INPUTS", "OUTPUTS", "OUT", "CHECK", "HTML", "OPEN"} {
 		t.Setenv("INFERGEN_"+key, "")
 	}
+}
+
+func mustRead(t *testing.T, path string) string {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(content)
 }
 
 func write(t *testing.T, path, source string) {
@@ -466,9 +477,13 @@ func TestViewDefaultsToTemporaryDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(temporary, "infergo-rules.html")
-	if stdout != want+"\n" {
-		t.Fatalf("stdout = %q, want %q", stdout, want)
+	directory, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := defaultHTMLPath("rules", directory)
+	if stdout != want+"\n" || filepath.Dir(want) != temporary {
+		t.Fatalf("stdout = %q, want %q under %q", stdout, want, temporary)
 	}
 	if _, err := os.Stat(want); err != nil {
 		t.Fatal(err)
@@ -553,6 +568,179 @@ func TestViewOpen(t *testing.T) {
 	}
 	if opened != want {
 		t.Fatalf("opened %q, want %q", opened, want)
+	}
+}
+
+func TestDefaultHTMLPathIsPerDirectory(t *testing.T) {
+	first := defaultHTMLPath("rules", "/work/one/rules")
+	if !regexp.MustCompile(`^infergo-rules-[0-9a-f]{8}\.html$`).MatchString(filepath.Base(first)) {
+		t.Fatalf("path = %q", first)
+	}
+	if first == defaultHTMLPath("rules", "/work/two/rules") {
+		t.Fatal("same-named packages share a path")
+	}
+	if first != defaultHTMLPath("rules", "/work/one/rules") {
+		t.Fatal("path is not deterministic")
+	}
+}
+
+func TestViewProtectsExistingFiles(t *testing.T) {
+	args := []string{"--rules", "rules.go,extra.go"}
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "rule file", path: "rules.go", want: "does not end in .html or .htm"},
+		{name: "generated file", path: "zz_infergo_gen.go", want: "does not end in .html or .htm"},
+		{name: "foreign page", path: "page.html", want: "not an Infergo page"},
+		{name: "foreign page with short extension", path: "PAGE.HTM", want: "not an Infergo page"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			commandFixture(t)
+			if _, err := execute(t, args...); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(strings.ToLower(test.path), "page") {
+				write(t, test.path, "<html>notes</html>\n")
+			}
+			before, err := os.ReadFile(test.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = view(t, refuseOpen(t), append(args, "--html", test.path)...)
+			if err == nil || !strings.Contains(err.Error(), test.path) || !strings.Contains(err.Error(), test.want) || !strings.Contains(err.Error(), "--html") {
+				t.Fatalf("error = %v", err)
+			}
+			after, err := os.ReadFile(test.path)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("view changed %s: %q, error %v", test.path, after, err)
+			}
+		})
+	}
+}
+
+func TestViewChecksDefaultPath(t *testing.T) {
+	commandFixture(t)
+	t.Setenv("TMPDIR", t.TempDir())
+	directory, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := defaultHTMLPath("rules", directory)
+	write(t, path, "<html>notes</html>\n")
+	args := []string{"--rules", "rules.go,extra.go"}
+	if _, _, err := view(t, refuseOpen(t), args...); err == nil || !strings.Contains(err.Error(), "not an Infergo page") {
+		t.Fatalf("foreign file: error = %v", err)
+	}
+	// A directory can't be read as a file, whatever user runs the test.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := view(t, refuseOpen(t), args...); err == nil || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "--html") {
+		t.Fatalf("unreadable file: error = %v", err)
+	}
+}
+
+func TestViewReplacesItsOwnPage(t *testing.T) {
+	commandFixture(t)
+	args := []string{"--rules", "rules.go,extra.go", "--html", "graph.htm"}
+	if _, _, err := view(t, refuseOpen(t), args...); err != nil {
+		t.Fatal(err)
+	}
+	write(t, "rules.go", strings.Replace(mustRead(t, "rules.go"), "seed + 1", "seed + 2", 1))
+	if _, _, err := view(t, refuseOpen(t), args...); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(mustRead(t, "graph.htm"), "seed + 2") {
+		t.Fatal("page was not replaced")
+	}
+}
+
+// An unchanged file keeps its modification time but still gets the mode.
+func TestUnchangedWriteEnforcesMode(t *testing.T) {
+	tests := []struct {
+		name   string
+		path   string
+		before os.FileMode
+		want   os.FileMode
+	}{
+		{name: "generated file", path: "zz_infergo_gen.go", before: 0o600, want: 0o644},
+		{name: "page", path: "graph.html", before: 0o644, want: 0o600},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			commandFixture(t)
+			run := func() {
+				t.Helper()
+				var err error
+				if test.path == "graph.html" {
+					_, _, err = view(t, refuseOpen(t), "--rules", "rules.go,extra.go", "--html", test.path)
+				} else {
+					_, err = execute(t, "--rules", "rules.go,extra.go")
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			run()
+			old := time.Now().Add(-time.Hour).Truncate(time.Second)
+			if err := os.Chmod(test.path, test.before); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chtimes(test.path, old, old); err != nil {
+				t.Fatal(err)
+			}
+			run()
+			info, err := os.Stat(test.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Mode().Perm() != test.want || !info.ModTime().Equal(old) {
+				t.Fatalf("mode %v, modified %v; want %v, %v", info.Mode().Perm(), info.ModTime(), test.want, old)
+			}
+		})
+	}
+}
+
+func TestOpenIsCommandLineOnly(t *testing.T) {
+	commandFixture(t)
+	write(t, "infergen.yaml", "rules: [rules.go, extra.go]\nhtml: graph.html\nopen: true\n")
+	t.Setenv("INFERGEN_OPEN", "true")
+	if _, _, err := view(t, refuseOpen(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	write(t, "infergen.yaml", "rules: [rules.go, extra.go]\nopen: maybe\n")
+	if _, err := execute(t, "--inputs", "Inputs"); err != nil {
+		t.Fatalf("generation failed on an open config key: %v", err)
+	}
+}
+
+func TestStartProgramDoesNotWait(t *testing.T) {
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip(err)
+	}
+	started := time.Now()
+	if err := startProgram(sleep, "3"); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("startProgram waited %v", elapsed)
+	}
+	if err := startProgram(filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Fatal("missing program started")
+	}
+	// A failure inside a started program is not detected.
+	if failing, err := exec.LookPath("false"); err == nil {
+		if err := startProgram(failing); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

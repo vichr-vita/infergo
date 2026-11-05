@@ -3,6 +3,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -44,7 +45,6 @@ type settings struct {
 	Out     string
 	Check   bool
 	HTML    string
-	Open    bool
 }
 
 // compile resolves the settings for command, compiles the ruleset, and prints its
@@ -103,7 +103,8 @@ func newCommand() *cobra.Command {
 	return newCommandWithOpener(openFile)
 }
 
-// newCommandWithOpener builds the CLI. view --open passes an absolute path to open.
+// newCommandWithOpener builds the CLI. view --open passes an absolute path to
+// open, which must start the opener without waiting for it.
 func newCommandWithOpener(open func(path string) error) *cobra.Command {
 	config := viper.New()
 	config.SetEnvPrefix("INFERGEN")
@@ -159,14 +160,26 @@ func newCommandWithOpener(open func(path string) error) *cobra.Command {
 			}
 			path := options.HTML
 			if path == "" {
-				path = filepath.Join(os.TempDir(), "infergo-"+result.PackageName+".html")
+				directory, err := filepath.Abs(".")
+				if err != nil {
+					return err
+				}
+				path = defaultHTMLPath(result.PackageName, directory)
+			}
+			if err := checkHTMLPath(path); err != nil {
+				return err
 			}
 			// The page embeds rule source, and the default directory is often shared.
 			if _, err := writeFile(path, []byte(html), 0o600); err != nil {
 				return err
 			}
 			fmt.Fprintln(command.OutOrStdout(), path)
-			if !options.Open {
+			// --open reads the flag alone, so a shared config can't open a browser.
+			openPage, err := command.Flags().GetBool("open")
+			if err != nil {
+				return err
+			}
+			if !openPage {
 				return nil
 			}
 			absolute, err := filepath.Abs(path)
@@ -180,8 +193,8 @@ func newCommandWithOpener(open func(path string) error) *cobra.Command {
 		},
 	}
 	addRulesetFlags(view)
-	view.Flags().String("html", "", "output HTML file (default: infergo-<package>.html in the system temporary directory)")
-	view.Flags().Bool("open", false, "open the HTML file with the platform's default application")
+	view.Flags().String("html", "", "output .html or .htm file (default: infergo-<package>-<hash>.html in the system temporary directory)")
+	view.Flags().Bool("open", false, "open the HTML file with the platform's default application (command line only)")
 	command.AddCommand(view)
 	return command
 }
@@ -200,7 +213,49 @@ func openerCommand(goos, path string) (string, []string) {
 
 func openFile(path string) error {
 	name, args := openerCommand(runtime.GOOS, path)
-	return exec.Command(name, args...).Run()
+	return startProgram(name, args...)
+}
+
+// startProgram starts a program without waiting for it, so an opener that stays
+// running can't hold the command. It reports only a failure to start.
+func startProgram(name string, args ...string) error {
+	program := exec.Command(name, args...)
+	if err := program.Start(); err != nil {
+		return err
+	}
+	// The program is running, so a failed release changes nothing for the caller.
+	_ = program.Process.Release()
+	return nil
+}
+
+// defaultHTMLPath keeps same-named packages from sharing a page. The hash of
+// the absolute ruleset directory gives each directory one stable path.
+func defaultHTMLPath(packageName, directory string) string {
+	hash := sha256.Sum256([]byte(directory))
+	return filepath.Join(os.TempDir(), fmt.Sprintf("infergo-%s-%x.html", packageName, hash[:4]))
+}
+
+// pageMarker appears in every page that ExportHTML produces.
+const pageMarker = `id="infergo-data"`
+
+// checkHTMLPath keeps view from replacing a file it didn't write. It accepts a
+// path only with an HTML extension, and an existing file only if it is a page.
+func checkHTMLPath(path string) error {
+	const advice = "choose another path with --html"
+	if extension := strings.ToLower(filepath.Ext(path)); extension != ".html" && extension != ".htm" {
+		return fmt.Errorf("%s does not end in .html or .htm; %s", path, advice)
+	}
+	existing, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("cannot check existing file %s: %w; %s", path, err, advice)
+	}
+	if !bytes.Contains(existing, []byte(pageMarker)) {
+		return fmt.Errorf("refusing to replace %s, which is not an Infergo page; %s", path, advice)
+	}
+	return nil
 }
 
 func ruleCount(rules int) string {
@@ -227,15 +282,16 @@ func checkFile(path string, result generate.Result) error {
 	return nil
 }
 
-// writeFile reports whether it changed path. It leaves a current file alone and
-// replaces any other only after the full write succeeds.
+// writeFile reports whether it changed path's content. It leaves a current file
+// in place, apart from correcting its mode, so its modification time holds. It
+// replaces any other file only after the full write succeeds.
 func writeFile(path string, content []byte, mode os.FileMode) (bool, error) {
 	existing, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return false, fmt.Errorf("read output file: %w", err)
 	}
 	if err == nil && bytes.Equal(existing, content) {
-		return false, nil
+		return false, enforceMode(path, mode)
 	}
 	file, err := os.CreateTemp(filepath.Dir(path), ".infergen-*"+filepath.Ext(path))
 	if err != nil {
@@ -253,4 +309,17 @@ func writeFile(path string, content []byte, mode os.FileMode) (bool, error) {
 		return false, err
 	}
 	return true, os.Rename(file.Name(), path)
+}
+
+// enforceMode changes path only when needed, so a correct file that belongs to
+// someone else doesn't fail.
+func enforceMode(path string, mode os.FileMode) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode().Perm() == mode {
+		return nil
+	}
+	return os.Chmod(path, mode)
 }
