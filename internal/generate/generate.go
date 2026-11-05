@@ -42,6 +42,9 @@ type fact struct {
 type field struct {
 	name string
 	fact fact
+	// local reports that the field is declared in the ruleset package, so its
+	// type can be spelled there. Fields of another package's struct may not be.
+	local bool
 }
 
 type rule struct {
@@ -170,14 +173,20 @@ func Generate(config Config) ([]byte, error) {
 			}
 			start, end := pkg.Fset.Position(fn.Pos()).Offset, pkg.Fset.Position(fn.End()).Offset
 			r := &c.rules[len(c.rules)-1]
-			r.source = string(raw[start:end])
-			r.requirement = strings.TrimSpace(fn.Doc.Text())
+			r.source = stripCarriageReturns(string(raw[start:end]))
+			r.requirement = stripCarriageReturns(strings.TrimSpace(fn.Doc.Text()))
 		}
 	}
 	if err := c.validate(); err != nil {
 		return nil, err
 	}
 	return c.emit(config)
+}
+
+// stripCarriageReturns keeps embedded text independent of the file's line
+// endings, so a CRLF checkout generates the same bytes as an LF one.
+func stripCarriageReturns(text string) string {
+	return strings.ReplaceAll(text, "\r", "")
 }
 
 func (c *compiler) errorf(pos token.Pos, message string, args ...any) error {
@@ -217,9 +226,17 @@ func (c *compiler) fields(name string) ([]field, error) {
 			return nil, c.errorf(f.Pos(), "fact %q cannot use the reserved error or context.Context types", factName)
 		}
 		seen[factName] = true
-		fields = append(fields, field{name: f.Name(), fact: fact{name: factName, typ: f.Type(), pos: f.Pos()}})
+		fields = append(fields, field{
+			name:  f.Name(),
+			fact:  fact{name: factName, typ: f.Type(), pos: f.Pos()},
+			local: f.Pkg() == c.pkg.Types,
+		})
 	}
 	return fields, nil
+}
+
+func allLocal(fields []field) bool {
+	return !slices.ContainsFunc(fields, func(f field) bool { return !f.local })
 }
 
 func isError(t types.Type) bool {
@@ -404,7 +421,12 @@ func (c *compiler) emit(config Config) ([]byte, error) {
 	var body bytes.Buffer
 	// Go types omit parameter names, so these guards detect only contract drift.
 	// Struct conversion ignores tags, which leaves tag changes to check mode.
+	// A contract with fields from another package gets no guard, because those
+	// fields may use types this package cannot name. Check mode still covers it.
 	emitGuard := func(contract string, fields []field) {
+		if !allLocal(fields) {
+			return
+		}
 		fmt.Fprintln(&body, "var _ = struct {")
 		for _, f := range fields {
 			fmt.Fprintf(&body, "%s %s\n", f.name, types.TypeString(f.fact.typ, qualifier))

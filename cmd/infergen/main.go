@@ -92,7 +92,8 @@ func newCommand() *cobra.Command {
 	return command
 }
 
-// checkFile fails unless path already holds source. It never writes.
+// checkFile fails unless path already holds source. It never writes. CRLF in
+// the file on disk is ignored so that an autocrlf checkout passes.
 func checkFile(path string, source []byte) error {
 	existing, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -101,7 +102,7 @@ func checkFile(path string, source []byte) error {
 	if err != nil {
 		return fmt.Errorf("read generated file: %w", err)
 	}
-	if !bytes.Equal(existing, source) {
+	if !bytes.Equal(bytes.ReplaceAll(existing, []byte("\r\n"), []byte("\n")), source) {
 		return fmt.Errorf("%s is out of date; run go generate", path)
 	}
 	return nil

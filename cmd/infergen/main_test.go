@@ -247,6 +247,33 @@ func TestCheckMode(t *testing.T) {
 	}
 }
 
+func TestCheckModeIgnoresLineEndings(t *testing.T) {
+	commandFixture(t)
+	write(t, "rules.go", strings.ReplaceAll(`package rules
+type Inputs struct { Seed int }
+type Outputs struct { Value int `+"`fact:\"value\"`"+` }
+func Rule(Seed int) (value int) {
+	return Seed + 1
+}
+`, "\n", "\r\n"))
+	generate := newCommand()
+	generate.SetArgs([]string{"--rules", "rules.go"})
+	if err := generate.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.ReadFile("zz_infergo_gen.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, "zz_infergo_gen.go", strings.ReplaceAll(string(source), "\n", "\r\n"))
+
+	check := newCommand()
+	check.SetArgs([]string{"--rules", "rules.go", "--check"})
+	if err := check.Execute(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCommandHelpSkipsConfig(t *testing.T) {
 	commandFixture(t)
 	write(t, "infergen.yaml", "rules: [")
