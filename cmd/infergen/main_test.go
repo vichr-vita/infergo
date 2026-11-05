@@ -715,6 +715,7 @@ func TestOpenIsCommandLineOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	t.Setenv("INFERGEN_OPEN", "")
 	write(t, "infergen.yaml", "rules: [rules.go, extra.go]\nopen: maybe\n")
 	if _, err := execute(t, "--inputs", "Inputs"); err != nil {
 		t.Fatalf("generation failed on an open config key: %v", err)
