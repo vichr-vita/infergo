@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,8 +17,19 @@ import (
 
 func main() {
 	if err := newCommand().Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "infergen:", err)
+		printError(os.Stderr, err)
 		os.Exit(1)
+	}
+}
+
+// printError prefixes each error of a joined report with the program name.
+func printError(w io.Writer, err error) {
+	failures := []error{err}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		failures = joined.Unwrap()
+	}
+	for _, failure := range failures {
+		fmt.Fprintln(w, "infergen:", failure)
 	}
 }
 
@@ -69,17 +81,28 @@ func newCommand() *cobra.Command {
 				}
 			}
 
-			source, err := generate.Generate(generate.Config{
+			result, err := generate.Generate(generate.Config{
 				Dir: ".", RuleFiles: options.Rules, Inputs: options.Inputs,
 				Outputs: options.Outputs, OutputFile: options.Out,
 			})
 			if err != nil {
 				return err
 			}
-			if options.Check {
-				return checkFile(options.Out, source)
+			stderr := command.ErrOrStderr()
+			for _, note := range result.Notes {
+				fmt.Fprintln(stderr, "infergen: warning:", note)
 			}
-			return writeFile(options.Out, source)
+			if options.Check {
+				return checkFile(options.Out, result)
+			}
+			updated, err := writeFile(options.Out, result.Source)
+			if err != nil {
+				return err
+			}
+			if updated {
+				fmt.Fprintf(stderr, "infergen: updated %s (%s)\n", options.Out, ruleCount(result.Rules))
+			}
+			return nil
 		},
 	}
 	flags := command.Flags()
@@ -92,37 +115,53 @@ func newCommand() *cobra.Command {
 	return command
 }
 
-// checkFile fails unless path already holds source. It never writes.
-func checkFile(path string, source []byte) error {
+func ruleCount(rules int) string {
+	if rules == 1 {
+		return "1 rule"
+	}
+	return fmt.Sprintf("%d rules", rules)
+}
+
+// checkFile fails unless path already holds the generated source. It never
+// writes. The package path identifies the failure in go generate ./... output.
+func checkFile(path string, result generate.Result) error {
 	existing, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%s is missing; run go generate", path)
+		return fmt.Errorf("%s: %s is missing; run go generate", result.Package, path)
 	}
 	if err != nil {
 		return fmt.Errorf("read generated file: %w", err)
 	}
-	if !bytes.Equal(existing, source) {
-		return fmt.Errorf("%s is out of date; run go generate", path)
+	if !bytes.Equal(existing, result.Source) {
+		return fmt.Errorf("%s: %s is out of date; run go generate", result.Package, path)
 	}
 	return nil
 }
 
-// Replace the generated file only after generation and the full write succeed.
-func writeFile(path string, source []byte) error {
+// writeFile reports whether it changed path. It leaves a current file alone and
+// replaces any other only after the full write succeeds.
+func writeFile(path string, source []byte) (bool, error) {
+	existing, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("read generated file: %w", err)
+	}
+	if err == nil && bytes.Equal(existing, source) {
+		return false, nil
+	}
 	file, err := os.CreateTemp(filepath.Dir(path), ".infergen-*.go")
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer os.Remove(file.Name())
 	defer file.Close()
 	if _, err := file.Write(source); err != nil {
-		return err
+		return false, err
 	}
 	if err := file.Chmod(0o644); err != nil {
-		return err
+		return false, err
 	}
 	if err := file.Close(); err != nil {
-		return err
+		return false, err
 	}
-	return os.Rename(file.Name(), path)
+	return true, os.Rename(file.Name(), path)
 }

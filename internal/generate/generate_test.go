@@ -68,10 +68,11 @@ func helper(seed int) int { return seed }
 func (Inputs) Method() int { return 0 }
 `)
 	config.Outputs = "facts"
-	source, err := Generate(config)
+	result, err := Generate(config)
 	if err != nil {
 		t.Fatal(err)
 	}
+	source := result.Source
 	if bytes.Contains(source, []byte("Unused(")) {
 		t.Fatal("unrequested rule was emitted")
 	}
@@ -79,15 +80,15 @@ func (Inputs) Method() int { return 0 }
 	write(t, path, string(source))
 	// Existing generated declarations must not interfere with regeneration.
 	again, err := Generate(config)
-	if err != nil || !bytes.Equal(source, again) {
+	if err != nil || !bytes.Equal(source, again.Source) {
 		t.Fatalf("generation is not reproducible: %v", err)
 	}
 	write(t, path, "package rules\nfunc Evaluate() { var _ = staleIdentifier }\n")
 	again, err = Generate(config)
-	if err != nil || !bytes.Equal(source, again) {
+	if err != nil || !bytes.Equal(source, again.Source) {
 		t.Fatalf("cannot regenerate stale code: %v", err)
 	}
-	write(t, path, string(again))
+	write(t, path, string(again.Source))
 	write(t, filepath.Join(config.Dir, "generated_test.go"), `package rules
 import (
     "fmt"
@@ -233,13 +234,319 @@ func Rule(values ...int) (value int) { return 1 }`,
 	}
 }
 
-func TestInputOnlyEvaluator(t *testing.T) {
-	config := fixture(t, "package rules\ntype Inputs struct { Value int }; type Outputs struct { Value int }")
-	source, err := Generate(config)
+// lines splits a generation failure into its report lines.
+func lines(t *testing.T, err error) []string {
+	t.Helper()
+	if err == nil {
+		t.Fatal("generation succeeded, want errors")
+	}
+	return strings.Split(err.Error(), "\n")
+}
+
+func TestReportsEveryErrorInSourceOrder(t *testing.T) {
+	config := fixture(t, `package rules
+type Inputs struct {
+    Seed int `+"`fact:\"seed\"`"+`
+    Label string `+"`fact:\"label\"`"+`
+}
+type Outputs struct {
+    Value int `+"`fact:\"value\"`"+`
+    hidden int
+}
+func Step(sed int) (middle int) { return sed }
+func Finish(middle int, label int) (value int) { return middle + label }
+func Other(values ...int) (other int) { return 0 }
+func A(b int) (a int) { return b }
+func B(a int) (b int) { return a }
+`)
+	// Files are compared by name, and the first producer comes from the earlier file.
+	write(t, filepath.Join(config.Dir, "a_more.go"), "package rules\nfunc Early() (value int) { return 1 }\n")
+	config.RuleFiles = []string{"rules.go", "a_more.go"}
+	_, err := Generate(config)
+	got := lines(t, err)
+	want := []string{
+		"rules.go:8:5: Outputs fields must be exported",
+		"rules.go:10:11: no input or rule produces fact \"sed\"",
+		"rules.go:11:25: fact \"label\" has type string, expected int",
+		"rules.go:11:37: fact \"value\" has multiple producers; first declared at a_more.go:2:15",
+		"rules.go:12:6: rule Other must not be variadic",
+		"rules.go:13:6: rule dependency cycle: A -> B -> A",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d errors, want %d:\n%s", len(got), len(want), err)
+	}
+	for i := range want {
+		if !strings.HasPrefix(got[i], want[i]) {
+			t.Errorf("line %d = %q, want prefix %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestErrorLimit(t *testing.T) {
+	ruleset := func(mistakes int) string {
+		var source strings.Builder
+		source.WriteString("package rules\ntype Inputs struct{}; type Outputs struct{}\n")
+		for i := range mistakes {
+			fmt.Fprintf(&source, "func Rule%d(unknown%dzzzzzzzz int) (out%d int) { return 0 }\n", i, i, i)
+		}
+		return source.String()
+	}
+	_, err := Generate(fixture(t, ruleset(10)))
+	if got := lines(t, err); len(got) != 10 || strings.Contains(err.Error(), "too many errors") {
+		t.Fatalf("ten errors reported as:\n%s", err)
+	}
+	_, err = Generate(fixture(t, ruleset(11)))
+	got := lines(t, err)
+	if len(got) != 11 || got[10] != "too many errors" || !strings.HasPrefix(got[0], "rules.go:3:") {
+		t.Fatalf("eleven errors reported as:\n%s", err)
+	}
+}
+
+func TestOneMistakeReportsOneError(t *testing.T) {
+	tests := []struct {
+		name, source, want string
+	}{
+		{
+			name:   "unnamed result feeds an output",
+			source: "type Inputs struct{}; type Outputs struct { Value int `fact:\"value\"` }\nfunc Rule() int { return 1 }",
+			want:   "requires named output facts",
+		},
+		{
+			name:   "invalid tag feeds a rule",
+			source: "type Inputs struct { Seed int `fact:\"not valid\"` }; type Outputs struct { Value int `fact:\"value\"` }\nfunc Rule(seed int) (value int) { return seed }",
+			want:   "invalid fact name",
+		},
+		{
+			name:   "unexported input feeds a rule",
+			source: "type Inputs struct { seed int }; type Outputs struct { Value int `fact:\"value\"` }\nfunc Rule(seed int) (value int) { return seed }",
+			want:   "fields must be exported",
+		},
+		{
+			name:   "rejected rule feeds a consumer",
+			source: "type Inputs struct{}; type Outputs struct { Value int `fact:\"value\"` }\nfunc Rule[T any]() (other T) { panic(0) }\nfunc Use(other string) (value int) { return 0 }",
+			want:   "must not be variadic or generic",
+		},
+		{
+			name:   "duplicate producers disagree on type",
+			source: "type Inputs struct{}; type Outputs struct { Value string `fact:\"value\"` }\nfunc A() (value int) { return 1 }\nfunc B() (value string) { return \"\" }",
+			want:   "has multiple producers",
+		},
+		{
+			name:   "missing input contract",
+			source: "type Outputs struct { Value int `fact:\"value\"` }\nfunc Rule(seed int) (value int) { return seed }",
+			want:   "Inputs must name a struct type",
+		},
+		{
+			name:   "duplicate producers do not fake a cycle",
+			source: "type Inputs struct{ Value int `fact:\"value\"` }; type Outputs struct{ Value int `fact:\"value\"` }\nfunc A(value int) (value2 int) { return value }\nfunc B(value2 int) (value int) { return value2 }",
+			want:   "has multiple producers",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := Generate(fixture(t, "package rules\n"+test.source))
+			if got := lines(t, err); len(got) != 1 || !strings.Contains(got[0], test.want) {
+				t.Fatalf("got:\n%s\nwant only %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestMissingFactSuggestion(t *testing.T) {
+	tests := []struct {
+		name, want string
+		facts      []string
+		suggestion string
+	}{
+		{name: "one edit", want: "sed", facts: []string{"seed", "total"}, suggestion: "seed"},
+		{name: "case only", want: "SEED", facts: []string{"seed", "seeds"}, suggestion: "seed"},
+		{name: "transposition", want: "totla", facts: []string{"seed", "total"}, suggestion: "total"},
+		{name: "closest wins", want: "salaryCent", facts: []string{"salaryCents", "salaryCentsNet"}, suggestion: "salaryCents"},
+		{name: "ties are alphabetical", want: "rates", facts: []string{"ratesB", "ratesA"}, suggestion: "ratesA"},
+		{name: "unrelated", want: "completely", facts: []string{"seed", "different"}},
+		{name: "same length short name", want: "tax", facts: []string{"tab"}},
+		{name: "single letter", want: "a", facts: []string{"b"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var fields strings.Builder
+			for i, name := range test.facts {
+				fmt.Fprintf(&fields, "F%d string `fact:%q`\n", i, name)
+			}
+			source := fmt.Sprintf("package rules\ntype Inputs struct {\n%s}\ntype Outputs struct{}\nfunc Rule(%s int) (value int) { return 0 }\n", &fields, test.want)
+			_, err := Generate(fixture(t, source))
+			got := lines(t, err)[0]
+			suggested := strings.Contains(got, "did you mean")
+			if test.suggestion == "" && suggested {
+				t.Fatalf("unexpected suggestion: %s", got)
+			}
+			if want := fmt.Sprintf("; did you mean %q?", test.suggestion); test.suggestion != "" && !strings.HasSuffix(got, want) {
+				t.Fatalf("got %s, want suffix %s", got, want)
+			}
+		})
+	}
+}
+
+func TestPositionsAreRelativeToRulesetDirectory(t *testing.T) {
+	source := `package rules
+type Inputs struct { Seed int ` + "`fact:\"seed\"`" + ` }
+type Outputs struct { Value int ` + "`fact:\"value\"`" + ` }
+func Rule(seed string) (value int) { return 0 }
+func Other() (value int) { return 0 }
+`
+	config := fixture(t, source)
+	_, err := Generate(config)
+	for _, want := range []string{"rules.go:4:11: ", "declared at rules.go:2:22", "first declared at rules.go:4:25"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %v, want %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), config.Dir) {
+		t.Errorf("error contains the absolute directory: %v", err)
+	}
+	config = fixture(t, "package rules\ntype Inputs struct{}; type Outputs struct{}\nvar broken undefinedType\n")
+	if _, err = Generate(config); err == nil || strings.Contains(err.Error(), config.Dir) {
+		t.Errorf("load error = %v, want a relative position", err)
+	}
+}
+
+func TestNotes(t *testing.T) {
+	config := fixture(t, `package rules
+type Inputs struct {
+    Seed int `+"`fact:\"seed\"`"+`
+    Direct int `+"`fact:\"direct\"`"+`
+    Ignored int `+"`fact:\"ignored\"`"+`
+    OnlyPruned int `+"`fact:\"onlyPruned\"`"+`
+}
+type Outputs struct {
+    Value int `+"`fact:\"value\"`"+`
+    Direct int `+"`fact:\"direct\"`"+`
+}
+func Keep(seed int) (value int) { return seed }
+func Orphan(onlyPruned int) (extra int) { return onlyPruned }
+`)
+	result, err := Generate(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(config.Dir, config.OutputFile), string(source))
+	if result.Rules != 1 || result.Package != "example.com/rules" {
+		t.Fatalf("result: %d rules in %q", result.Rules, result.Package)
+	}
+	want := []string{
+		`rules.go:5:5: input fact "ignored" is not used by any output or retained rule`,
+		`rules.go:6:5: input fact "onlyPruned" is not used by any output or retained rule`,
+		`rules.go:13:6: rule Orphan is not needed by any output and was left out`,
+	}
+	if len(result.Notes) != len(want) {
+		t.Fatalf("notes = %v, want %v", result.Notes, want)
+	}
+	for i := range want {
+		if got := result.Notes[i].String(); got != want[i] {
+			t.Errorf("note %d = %q, want %q", i, got, want[i])
+		}
+	}
+}
+
+// generatedAPICaller uses the whole generated API with the exact types emit
+// declares, so it compiles against the stubs only if they match.
+const generatedAPICaller = `package rules
+import (
+    "context"
+    "github.com/vichr-vita/infergo"
+)
+var (
+    _ func(context.Context, Inputs, infergo.Options) (Outputs, error) = Evaluate
+    _ func(context.Context, Inputs, infergo.Options) (Outputs, infergo.Snapshot, error) = EvaluateTrace
+    _ func() infergo.Ruleset = Ruleset
+    _ func(context.Context, string, []ViewerCase) (string, error) = ExportHTML
+    _ infergo.ViewerCase[Inputs] = ViewerCase{}
+)
+`
+
+func TestNonTestCallerOfGeneratedAPI(t *testing.T) {
+	// The package-level ctx and alias names must not disturb the stubs.
+	config := fixture(t, `package rules
+type Inputs struct { Seed int `+"`fact:\"seed\"`"+` }
+type Outputs struct { Value int `+"`fact:\"value\"`"+` }
+var ctx, _infergo_context, _infergo_runtime = 1, 2, 3
+func Rule(seed int) (value int) { return seed + ctx }
+`)
+	alone, err := Generate(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(config.Dir, "caller.go"), generatedAPICaller)
+	path := filepath.Join(config.Dir, config.OutputFile)
+	for name, existing := range map[string]string{"absent": "", "stale": "package rules\nfunc Evaluate() { var _ = staleIdentifier }\n"} {
+		if existing == "" {
+			os.Remove(path)
+		} else {
+			write(t, path, existing)
+		}
+		result, err := Generate(config)
+		if err != nil {
+			t.Fatalf("%s output: %v", name, err)
+		}
+		if !bytes.Equal(result.Source, alone.Source) {
+			t.Fatalf("%s output: a caller changed the generated source", name)
+		}
+	}
+	write(t, path, string(alone.Source))
+	if _, err := Generate(config); err != nil {
+		t.Fatalf("current output: %v", err)
+	}
+	command := exec.CommandContext(t.Context(), "go", "build", "./...")
+	command.Dir = config.Dir
+	command.Env = append(os.Environ(), "GOWORK=off")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("caller failed to build: %v\n%s", err, output)
+	}
+}
+
+func TestCallerKeepsDiagnostics(t *testing.T) {
+	const contracts = "type Inputs struct { Seed int }; type Outputs struct { Seed int }\n"
+	const caller = "package rules\nvar _ = Ruleset\n"
+	tests := []struct {
+		name, source, want string
+	}{
+		{name: "missing inputs", source: "type Outputs struct{}\n", want: "Inputs must name a struct type"},
+		{name: "missing outputs", source: "type Inputs struct{}\n", want: "Outputs must name a struct type"},
+		{name: "non-struct inputs", source: "type Inputs int; type Outputs struct{}\n", want: "Inputs must be a struct"},
+		{name: "generic inputs", source: "type Inputs[T any] struct{}; type Outputs struct{}\n", want: "Inputs must not be generic"},
+		{name: "reserved name", source: contracts + "func Evaluate() {}\nvar _ = undefinedName\n", want: "Evaluate is reserved for generated code"},
+		{name: "type error elsewhere", source: contracts + "var _ = undefinedName\n", want: "undefined: undefinedName"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := fixture(t, "package rules\n"+test.source)
+			write(t, filepath.Join(config.Dir, "caller.go"), caller)
+			_, err := Generate(config)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+			if strings.Contains(err.Error(), config.OutputFile) {
+				t.Fatalf("stub leaked into the diagnostic: %v", err)
+			}
+		})
+	}
+}
+
+func TestRuntimePackageCheckPrecedesStubs(t *testing.T) {
+	config := fixture(t, "package infergo\ntype Inputs struct{}; type Outputs struct{}\nvar _ = Ruleset\n")
+	write(t, filepath.Join(config.Dir, "go.mod"), "module "+runtimePath+"\n\ngo 1.26\n")
+	_, err := Generate(config)
+	if err == nil || !strings.Contains(err.Error(), "rules must be in a separate package") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestInputOnlyEvaluator(t *testing.T) {
+	config := fixture(t, "package rules\ntype Inputs struct { Value int }; type Outputs struct { Value int }")
+	result, err := Generate(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(config.Dir, config.OutputFile), string(result.Source))
 	command := exec.CommandContext(t.Context(), "go", "test", "./...")
 	command.Dir = config.Dir
 	command.Env = append(os.Environ(), "GOWORK=off")
@@ -269,13 +576,13 @@ func Total(seed int) (total int) { return seed + 1 }
 	}
 	regenerate := func() {
 		t.Helper()
-		source, err := Generate(config)
+		result, err := Generate(config)
 		if err != nil {
 			t.Fatal(err)
 		}
-		write(t, output, string(source))
-		if result, err := build(); err != nil {
-			t.Fatalf("regenerated evaluator failed: %v\n%s", err, result)
+		write(t, output, string(result.Source))
+		if output, err := build(); err != nil {
+			t.Fatalf("regenerated evaluator failed: %v\n%s", err, output)
 		}
 	}
 	regenerate()
@@ -310,11 +617,11 @@ func Save() (saved int) { signalSaved(); return 42 }
 func signalSaved() { close(saved) }
 func Join(left int, right int) (joined int) { panic("failed dependency ran") }
 `)
-	source, err := Generate(config)
+	result, err := Generate(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(config.Dir, config.OutputFile), string(source))
+	write(t, filepath.Join(config.Dir, config.OutputFile), string(result.Source))
 	write(t, filepath.Join(config.Dir, "trace_test.go"), `package rules
 import (
     "errors"
