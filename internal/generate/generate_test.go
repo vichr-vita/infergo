@@ -29,6 +29,25 @@ func write(t *testing.T, path, source string) {
 	}
 }
 
+// The viewer's JSON distinguishes nil from empty, and generated code is never nil.
+func TestRulesetMetadataHasNoNilContracts(t *testing.T) {
+	config := fixture(t, `package rules
+type Inputs struct {}
+type Outputs struct {}
+`)
+	result, err := Generate(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ruleset := result.Ruleset
+	if ruleset.Inputs == nil || ruleset.Outputs == nil || ruleset.Rules == nil {
+		t.Fatalf("ruleset has a nil contract: %#v", ruleset)
+	}
+	if result.PackageName != "rules" {
+		t.Fatalf("package name = %q", result.PackageName)
+	}
+}
+
 func TestGeneratedEvaluator(t *testing.T) {
 	config := fixture(t, `package rules
 import (

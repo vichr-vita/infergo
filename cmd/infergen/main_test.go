@@ -2,13 +2,17 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/vichr-vita/infergo/ruleset/bonus"
 )
 
 func commandFixture(t *testing.T) {
@@ -18,10 +22,8 @@ func commandFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(t.TempDir())
+	clearEnvironment(t)
 	t.Setenv("GOWORK", "off")
-	for _, key := range []string{"CONFIG", "RULES", "INPUTS", "OUTPUTS", "OUT", "CHECK"} {
-		t.Setenv("INFERGEN_"+key, "")
-	}
 	write(t, "go.mod", fmt.Sprintf("module example.com/rules\n\ngo 1.26.4\n\nrequire github.com/vichr-vita/infergo v0.0.0\nreplace github.com/vichr-vita/infergo => %q\n", root))
 	write(t, "rules.go", `package rules
 type Inputs struct { Seed int `+"`fact:\"seed\"`"+` }
@@ -33,6 +35,13 @@ func Step(seed int) (middle int) { return seed + 1 }
 	write(t, "extra.go", `package rules
 func Finish(middle int) (value int) { return middle + 1 }
 `)
+}
+
+func clearEnvironment(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{"CONFIG", "RULES", "INPUTS", "OUTPUTS", "OUT", "CHECK", "HTML", "OPEN"} {
+		t.Setenv("INFERGEN_"+key, "")
+	}
 }
 
 func write(t *testing.T, path, source string) {
@@ -366,9 +375,188 @@ func TestCommandHelpSkipsConfig(t *testing.T) {
 	if err := command.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	for _, flag := range []string{"--config", "--rules", "--inputs", "--outputs", "--out", "--check"} {
+	for _, flag := range []string{"--config", "--rules", "--inputs", "--outputs", "--out", "--check", "view"} {
 		if !strings.Contains(output.String(), flag) {
 			t.Fatalf("help does not include %s:\n%s", flag, &output)
+		}
+	}
+	if strings.Contains(output.String(), "completion") {
+		t.Fatalf("help lists a default subcommand:\n%s", &output)
+	}
+}
+
+// view runs infergen view with open as its opener and returns standard output
+// and standard error.
+func view(t *testing.T, open func(string) error, args ...string) (string, string, error) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	command := newCommandWithOpener(open)
+	command.SetOut(&stdout)
+	command.SetErr(&stderr)
+	command.SetArgs(append([]string{"view"}, args...))
+	err := command.Execute()
+	return stdout.String(), stderr.String(), err
+}
+
+func refuseOpen(t *testing.T) func(string) error {
+	return func(path string) error {
+		t.Helper()
+		t.Errorf("opened %s without --open", path)
+		return nil
+	}
+}
+
+func TestViewMatchesGeneratedExport(t *testing.T) {
+	clearEnvironment(t)
+	t.Chdir("../../ruleset/bonus")
+	path := filepath.Join(t.TempDir(), "bonus.html")
+	if _, _, err := view(t, refuseOpen(t), "--rules", "bonus.go", "--html", path); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := bonus.ExportHTML(context.Background(), "bonus", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != want {
+		t.Fatalf("view output differs from bonus.ExportHTML: %d bytes, want %d", len(got), len(want))
+	}
+}
+
+// The fixture has no generated file, and view must not add one.
+func TestViewDefaultsToTemporaryDirectory(t *testing.T) {
+	commandFixture(t)
+	before, err := filepath.Glob("*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	temporary := t.TempDir()
+	t.Setenv("TMPDIR", temporary)
+	stdout, _, err := view(t, refuseOpen(t), "--rules", "rules.go,extra.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(temporary, "infergo-rules.html")
+	if stdout != want+"\n" {
+		t.Fatalf("stdout = %q, want %q", stdout, want)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatal(err)
+	}
+	after, err := filepath.Glob("*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(before, after) {
+		t.Fatalf("view changed the source tree: %v, was %v", after, before)
+	}
+}
+
+func TestViewReflectsSourceOverStaleGeneratedFile(t *testing.T) {
+	commandFixture(t)
+	const args = "rules.go,extra.go"
+	if _, err := execute(t, "--rules", args); err != nil {
+		t.Fatal(err)
+	}
+	generated, err := os.ReadFile("zz_infergo_gen.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, "extra.go", "package rules\nfunc Renamed(middle int) (value int) { return middle }\n")
+	stdout, _, err := view(t, refuseOpen(t), "--rules", args, "--html", "graph.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "graph.html\n" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	html, err := os.ReadFile("graph.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(html, []byte("Renamed")) || bytes.Contains(html, []byte("Finish")) {
+		t.Fatal("view did not reflect the current source")
+	}
+	current, err := os.ReadFile("zz_infergo_gen.go")
+	if err != nil || !bytes.Equal(current, generated) {
+		t.Fatalf("view changed the generated file, error %v", err)
+	}
+}
+
+func TestViewPrintsWarnings(t *testing.T) {
+	commandFixture(t)
+	write(t, "orphan.go", "package rules\nfunc Orphan(seed int) (other int) { return seed }\n")
+	_, stderr, err := view(t, refuseOpen(t), "--rules", "rules.go,extra.go,orphan.go", "--html", "graph.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "infergen: warning: orphan.go:2:6: rule Orphan is not needed"; !strings.Contains(stderr, want) {
+		t.Fatalf("stderr %q lacks %q", stderr, want)
+	}
+}
+
+func TestViewUsesSharedConfiguration(t *testing.T) {
+	commandFixture(t)
+	write(t, "infergen.yaml", "rules: [rules.go, extra.go]\nhtml: configured.html\n")
+	t.Setenv("INFERGEN_CHECK", "true") // Generation's check mode does not apply to view.
+	if _, _, err := view(t, refuseOpen(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat("configured.html"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestViewOpen(t *testing.T) {
+	commandFixture(t)
+	var opened string
+	open := func(path string) error {
+		opened = path
+		return nil
+	}
+	if _, _, err := view(t, open, "--rules", "rules.go,extra.go", "--html", "graph.html", "--open"); err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.Abs("graph.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened != want {
+		t.Fatalf("opened %q, want %q", opened, want)
+	}
+}
+
+func TestViewOpenFailureKeepsFile(t *testing.T) {
+	commandFixture(t)
+	open := func(string) error { return errors.New("no opener") }
+	stdout, _, err := view(t, open, "--rules", "rules.go,extra.go", "--html", "graph.html", "--open")
+	if err == nil || !strings.Contains(err.Error(), "graph.html") || !strings.Contains(err.Error(), "no opener") {
+		t.Fatalf("error = %v", err)
+	}
+	if stdout != "graph.html\n" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if _, err := os.Stat("graph.html"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOpenerCommand(t *testing.T) {
+	tests := []struct {
+		goos string
+		want []string
+	}{
+		{"linux", []string{"xdg-open", "/a.html"}},
+		{"darwin", []string{"open", "/a.html"}},
+		{"windows", []string{"rundll32", "url.dll,FileProtocolHandler", "/a.html"}},
+	}
+	for _, test := range tests {
+		name, args := openerCommand(test.goos, "/a.html")
+		if got := append([]string{name}, args...); !slices.Equal(got, test.want) {
+			t.Errorf("%s: %v, want %v", test.goos, got, test.want)
 		}
 	}
 }

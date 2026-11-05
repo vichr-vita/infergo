@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/vichr-vita/infergo"
 	"github.com/vichr-vita/infergo/internal/generate"
 )
 
@@ -33,7 +36,75 @@ func printError(w io.Writer, err error) {
 	}
 }
 
+// settings are the resolved flags, environment variables, and config file values.
+type settings struct {
+	Rules   []string
+	Inputs  string
+	Outputs string
+	Out     string
+	Check   bool
+	HTML    string
+	Open    bool
+}
+
+// compile resolves the settings for command, compiles the ruleset, and prints its
+// warnings. It writes no files.
+func compile(config *viper.Viper, command *cobra.Command) (settings, generate.Result, error) {
+	var options settings
+	if err := config.BindPFlags(command.Flags()); err != nil {
+		return options, generate.Result{}, err
+	}
+	configFile := config.GetString("config")
+	if configFile != "" {
+		config.SetConfigFile(configFile)
+	}
+	if err := config.ReadInConfig(); err != nil {
+		var missing viper.ConfigFileNotFoundError
+		if configFile != "" || !errors.As(err, &missing) {
+			return options, generate.Result{}, fmt.Errorf("read config: %w", err)
+		}
+	}
+	if err := config.Unmarshal(&options); err != nil {
+		return options, generate.Result{}, fmt.Errorf("decode config: %w", err)
+	}
+	if len(options.Rules) == 0 {
+		return options, generate.Result{}, fmt.Errorf("rule files are required; set --rules, INFERGEN_RULES, or rules in a config file")
+	}
+	for i := range options.Rules {
+		options.Rules[i] = strings.TrimSpace(options.Rules[i])
+		if options.Rules[i] == "" {
+			return options, generate.Result{}, fmt.Errorf("rule file names must not be empty")
+		}
+	}
+	result, err := generate.Generate(generate.Config{
+		Dir: ".", RuleFiles: options.Rules, Inputs: options.Inputs,
+		Outputs: options.Outputs, OutputFile: options.Out,
+	})
+	if err != nil {
+		return options, generate.Result{}, err
+	}
+	for _, note := range result.Notes {
+		fmt.Fprintln(command.ErrOrStderr(), "infergen: warning:", note)
+	}
+	return options, result, nil
+}
+
+// addRulesetFlags declares the settings that generation and view share.
+func addRulesetFlags(command *cobra.Command) {
+	flags := command.Flags()
+	flags.String("config", "", "configuration file (default: infergen.* in the current directory)")
+	flags.StringSlice("rules", nil, "Go rule files in the current package (comma-separated or repeated)")
+	flags.String("inputs", "Inputs", "external input struct type")
+	flags.String("outputs", "Outputs", "requested output struct type")
+	flags.String("out", "zz_infergo_gen.go", "generated Go file")
+}
+
 func newCommand() *cobra.Command {
+	return newCommandWithOpener(openFile)
+}
+
+// newCommandWithOpener builds the CLI. view --open passes an absolute path to open.
+func newCommandWithOpener(open func(path string) error) *cobra.Command {
 	config := viper.New()
 	config.SetEnvPrefix("INFERGEN")
 	config.AutomaticEnv()
@@ -48,71 +119,88 @@ func newCommand() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(command *cobra.Command, _ []string) error {
-			if err := config.BindPFlags(command.Flags()); err != nil {
-				return err
-			}
-			configFile := config.GetString("config")
-			if configFile != "" {
-				config.SetConfigFile(configFile)
-			}
-			if err := config.ReadInConfig(); err != nil {
-				var missing viper.ConfigFileNotFoundError
-				if configFile != "" || !errors.As(err, &missing) {
-					return fmt.Errorf("read config: %w", err)
-				}
-			}
-			var options struct {
-				Rules   []string
-				Inputs  string
-				Outputs string
-				Out     string
-				Check   bool
-			}
-			if err := config.Unmarshal(&options); err != nil {
-				return fmt.Errorf("decode config: %w", err)
-			}
-			if len(options.Rules) == 0 {
-				return fmt.Errorf("rule files are required; set --rules, INFERGEN_RULES, or rules in a config file")
-			}
-			for i := range options.Rules {
-				options.Rules[i] = strings.TrimSpace(options.Rules[i])
-				if options.Rules[i] == "" {
-					return fmt.Errorf("rule file names must not be empty")
-				}
-			}
-
-			result, err := generate.Generate(generate.Config{
-				Dir: ".", RuleFiles: options.Rules, Inputs: options.Inputs,
-				Outputs: options.Outputs, OutputFile: options.Out,
-			})
+			options, result, err := compile(config, command)
 			if err != nil {
 				return err
-			}
-			stderr := command.ErrOrStderr()
-			for _, note := range result.Notes {
-				fmt.Fprintln(stderr, "infergen: warning:", note)
 			}
 			if options.Check {
 				return checkFile(options.Out, result)
 			}
-			updated, err := writeFile(options.Out, result.Source)
+			updated, err := writeFile(options.Out, result.Source, 0o644)
 			if err != nil {
 				return err
 			}
 			if updated {
-				fmt.Fprintf(stderr, "infergen: updated %s (%s)\n", options.Out, ruleCount(result.Rules))
+				fmt.Fprintf(command.ErrOrStderr(), "infergen: updated %s (%s)\n", options.Out, ruleCount(result.Rules))
 			}
 			return nil
 		},
 	}
-	flags := command.Flags()
-	flags.String("config", "", "configuration file (default: infergen.* in the current directory)")
-	flags.StringSlice("rules", nil, "Go rule files in the current package (comma-separated or repeated)")
-	flags.String("inputs", "Inputs", "external input struct type")
-	flags.String("outputs", "Outputs", "requested output struct type")
-	flags.String("out", "zz_infergo_gen.go", "generated Go file")
-	flags.Bool("check", false, "fail if the generated file is missing or out of date, and write nothing")
+	addRulesetFlags(command)
+	command.Flags().Bool("check", false, "fail if the generated file is missing or out of date, and write nothing")
+	// view is the only subcommand, so cobra's defaults would only add noise.
+	command.CompletionOptions.DisableDefaultCmd = true
+	command.SetHelpCommand(&cobra.Command{Hidden: true})
+
+	view := &cobra.Command{
+		Use:     "view [flags]",
+		Short:   "Export the rule graph as an offline HTML page without generating code",
+		Example: "  infergen view --rules rules.go --open\n  infergen view --html graph.html",
+		Args:    cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			options, result, err := compile(config, command)
+			if err != nil {
+				return err
+			}
+			// With no cases, ExportHTML never calls the evaluator or runs a rule.
+			html, err := infergo.ExportHTML[struct{}, struct{}](command.Context(), result.PackageName, result.Ruleset, nil, nil)
+			if err != nil {
+				return err
+			}
+			path := options.HTML
+			if path == "" {
+				path = filepath.Join(os.TempDir(), "infergo-"+result.PackageName+".html")
+			}
+			// The page embeds rule source, and the default directory is often shared.
+			if _, err := writeFile(path, []byte(html), 0o600); err != nil {
+				return err
+			}
+			fmt.Fprintln(command.OutOrStdout(), path)
+			if !options.Open {
+				return nil
+			}
+			absolute, err := filepath.Abs(path)
+			if err != nil {
+				return fmt.Errorf("open %s: %w", path, err)
+			}
+			if err := open(absolute); err != nil {
+				return fmt.Errorf("open %s: %w", path, err)
+			}
+			return nil
+		},
+	}
+	addRulesetFlags(view)
+	view.Flags().String("html", "", "output HTML file (default: infergo-<package>.html in the system temporary directory)")
+	view.Flags().Bool("open", false, "open the HTML file with the platform's default application")
+	command.AddCommand(view)
 	return command
+}
+
+// openerCommand returns the program and arguments that open path on goos.
+func openerCommand(goos, path string) (string, []string) {
+	switch goos {
+	case "darwin":
+		return "open", []string{path}
+	case "windows":
+		return "rundll32", []string{"url.dll,FileProtocolHandler", path}
+	default:
+		return "xdg-open", []string{path}
+	}
+}
+
+func openFile(path string) error {
+	name, args := openerCommand(runtime.GOOS, path)
+	return exec.Command(name, args...).Run()
 }
 
 func ruleCount(rules int) string {
@@ -140,24 +228,24 @@ func checkFile(path string, result generate.Result) error {
 
 // writeFile reports whether it changed path. It leaves a current file alone and
 // replaces any other only after the full write succeeds.
-func writeFile(path string, source []byte) (bool, error) {
+func writeFile(path string, content []byte, mode os.FileMode) (bool, error) {
 	existing, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return false, fmt.Errorf("read generated file: %w", err)
+		return false, fmt.Errorf("read output file: %w", err)
 	}
-	if err == nil && bytes.Equal(existing, source) {
+	if err == nil && bytes.Equal(existing, content) {
 		return false, nil
 	}
-	file, err := os.CreateTemp(filepath.Dir(path), ".infergen-*.go")
+	file, err := os.CreateTemp(filepath.Dir(path), ".infergen-*"+filepath.Ext(path))
 	if err != nil {
 		return false, err
 	}
 	defer os.Remove(file.Name())
 	defer file.Close()
-	if _, err := file.Write(source); err != nil {
+	if _, err := file.Write(content); err != nil {
 		return false, err
 	}
-	if err := file.Chmod(0o644); err != nil {
+	if err := file.Chmod(mode); err != nil {
 		return false, err
 	}
 	if err := file.Close(); err != nil {
