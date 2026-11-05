@@ -107,6 +107,9 @@ Put `recover` on the goroutine that calls `Evaluate`. The recovered value is an
 happened. If existing code compares the recovered value directly, read `Value`
 or use `errors.Is`.
 
+If the rule panicked in a deferred function during `runtime.Goexit`, for example
+after `t.FailNow`, sequential execution ends the goroutine after `recover`.
+
 The panic reaches the caller only after started rules return, so a rule that
 ignores cancellation delays it. `EvaluateTrace` and `ExportHTML` panic the same
 way and return no snapshot or HTML. See [Rule panics](runtime.md#rule-panics).

@@ -152,6 +152,10 @@ that text and would otherwise lose the panic site. Log it, but do not send it to
 clients. Code that compares a recovered value directly must read `Value` or use
 `errors.Is` instead.
 
+Go turns `panic(nil)` into a `*runtime.PanicNilError`, which `Value` then holds.
+Under `GODEBUG=panicnil=1`, `Value` is nil, and the panic still stops evaluation
+and reaches the caller.
+
 This handler logs a rule panic and passes any other panic along:
 
 ```go
@@ -180,7 +184,13 @@ no HTML, so a panicking case stops the whole export.
 
 A rule that calls `runtime.Goexit`, for example through `t.FailNow`, gets the
 same cleanup. The goroutine that called `Evaluate` or `Run` then exits, as it
-would in sequential execution, unless another rule panicked.
+would in sequential execution, unless a rule panicked.
+
+If a deferred function panics during that `Goexit`, the caller still receives a
+`*PanicError`. Sequential execution runs rules on the caller's goroutine, so Go
+resumes the `Goexit` after the function that recovered finishes, and the
+goroutine exits. In parallel execution, the `Goexit` ends on a worker and the
+caller continues normally after `recover`.
 
 ## Rule and NewPlan
 

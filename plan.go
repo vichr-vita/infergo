@@ -119,7 +119,10 @@ func NewPlan(rules []Rule) (*Plan, error) {
 // returned, Run panics on its caller's goroutine with a *PanicError, whatever
 // the MaxParallel. That panic takes precedence over errors and cancellation, and
 // Run raises only one if several rules panic. Likewise, a rule that calls
-// runtime.Goexit, as t.FailNow does, ends the goroutine that called Run.
+// runtime.Goexit, as t.FailNow does, ends the goroutine that called Run. If a
+// deferred function panics during that Goexit, Run still panics. Go resumes the
+// Goexit after a recover on the same goroutine, so in sequential execution the
+// goroutine exits once the recovering function finishes.
 func (p *Plan) Run(ctx context.Context, options Options, execute func(context.Context, int) error) error {
 	if options.MaxParallel < 0 {
 		return fmt.Errorf("infergo: MaxParallel must not be negative")
@@ -130,14 +133,22 @@ func (p *Plan) Run(ctx context.Context, options Options, execute func(context.Co
 	ctx, cancel := context.WithCancel(ctx)
 	limit := min(options.MaxParallel, len(p.names))
 	if limit <= 1 {
-		defer cancel()
+		var firstPanic atomic.Pointer[PanicError]
+		// Raising from here also works while a Goexit ends this goroutine.
+		defer func() {
+			cancel()
+			if panicked := firstPanic.Load(); panicked != nil {
+				panic(panicked)
+			}
+		}()
 		for _, id := range p.order {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			panicked, err := p.call(ctx, id, execute)
+			panicked, err := p.call(ctx, id, execute, &firstPanic)
 			if panicked != nil {
-				panic(panicked)
+				firstPanic.CompareAndSwap(nil, panicked)
+				return nil // The deferred function raises it.
 			}
 			if err != nil {
 				return &RuleError{Rule: p.names[id], Err: err}
@@ -169,11 +180,11 @@ func (p *Plan) Run(ctx context.Context, options Options, execute func(context.Co
 				}
 			}()
 			for id := range jobs {
-				// The coordinator can dispatch as cancellation arrives.
+				// The coordinator's select can dispatch as cancellation arrives.
 				if ctx.Err() != nil {
 					continue
 				}
-				panicked, err := p.call(ctx, id, execute)
+				panicked, err := p.call(ctx, id, execute, &firstPanic)
 				if panicked != nil {
 					firstPanic.CompareAndSwap(nil, panicked)
 					cancel()
@@ -238,13 +249,27 @@ func (p *Plan) Run(ctx context.Context, options Options, execute func(context.Co
 	return ctx.Err()
 }
 
-// call runs one rule and returns a panic instead of unwinding, so the caller can
-// choose where to raise it. A runtime.Goexit in the rule still ends the goroutine.
-func (p *Plan) call(ctx context.Context, id int, execute func(context.Context, int) error) (panicked *PanicError, err error) {
+// call runs one rule and returns any panic instead of unwinding, so the caller
+// can choose where to raise it. The caller must store that panic in firstPanic.
+//
+// A runtime.Goexit in the rule still ends the goroutine and call never returns,
+// so call stores a panic raised during that Goexit itself. Only a non-nil value
+// can be stored here, because recover returns nil for a plain Goexit. It also
+// returns nil for panic(nil) under GODEBUG=panicnil=1, so a rule that did not
+// return is the sign of a panic. Unlike a Goexit, that nil panic reaches the caller.
+func (p *Plan) call(ctx context.Context, id int, execute func(context.Context, int) error, firstPanic *atomic.Pointer[PanicError]) (panicked *PanicError, err error) {
+	returned := false
 	defer func() {
-		if value := recover(); value != nil {
-			panicked = &PanicError{Rule: p.names[id], Value: value, Stack: debug.Stack()}
+		if returned {
+			return
+		}
+		value := recover()
+		panicked = &PanicError{Rule: p.names[id], Value: value, Stack: debug.Stack()}
+		if value != nil {
+			firstPanic.CompareAndSwap(nil, panicked)
 		}
 	}()
-	return nil, execute(ctx, id)
+	err = execute(ctx, id)
+	returned = true
+	return nil, err
 }

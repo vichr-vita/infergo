@@ -344,6 +344,111 @@ func TestPlanGoexitEndsCallerGoroutine(t *testing.T) {
 	}
 }
 
+func TestPlanPanicBeatsGoexit(t *testing.T) {
+	plan := newTestPlan(t, []Rule{{Name: "Exit"}, {Name: "Explode"}})
+	started := make(chan struct{})
+	recovered := make(chan any, 1)
+	// Only a recover that ends the panic lets this send run, so a Run that also
+	// exits its goroutine fails the receive below.
+	go func() {
+		recovered <- runRecovering(t.Context(), plan, Options{MaxParallel: 2}, func(ctx context.Context, id int) error {
+			if id == 0 {
+				<-started
+				runtime.Goexit()
+			}
+			close(started)
+			// Cancellation shows the worker running Exit has already gone.
+			<-ctx.Done()
+			explode("boom")
+			return nil
+		})
+	}()
+	requirePanicError(t, receive(t, recovered), "Explode")
+}
+
+// Go resumes a Goexit on the goroutine that recovers a panic raised during it.
+// Only the sequential path runs the rule on the caller's goroutine, so only a
+// parallel caller continues after its recover.
+func TestPlanPanicDuringGoexitReachesCaller(t *testing.T) {
+	plan := newTestPlan(t, []Rule{
+		{Name: "Exit"}, {Name: "Running"},
+		{Name: "Dependent", DependsOn: []int{0}},
+	})
+	for _, limit := range []int{0, 1, 2} {
+		t.Run(fmt.Sprintf("parallel=%d", limit), func(t *testing.T) {
+			var callerContinued, dependentRan atomic.Bool
+			recovered := make(chan any, 1)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				func() {
+					defer func() { recovered <- recover() }()
+					_ = plan.Run(t.Context(), Options{MaxParallel: limit}, func(ctx context.Context, id int) error {
+						switch id {
+						case 0:
+							defer explode("cleanup failed")
+							runtime.Goexit()
+						case 1:
+							<-ctx.Done()
+						default:
+							dependentRan.Store(true)
+						}
+						return nil
+					})
+				}()
+				callerContinued.Store(true)
+			}()
+			panicError := requirePanicError(t, receive(t, recovered), "Exit")
+			if panicError.Value != "cleanup failed" {
+				t.Fatalf("panic value = %v", panicError.Value)
+			}
+			if !strings.Contains(string(panicError.Stack), "infergo.explode") {
+				t.Fatalf("stack does not reach the panic site:\n%s", panicError.Stack)
+			}
+			receive(t, done)
+			if got, want := callerContinued.Load(), limit > 1; got != want {
+				t.Fatalf("caller continued after recover = %v, want %v", got, want)
+			}
+			if dependentRan.Load() {
+				t.Fatal("dependent ran after its producer panicked")
+			}
+		})
+	}
+}
+
+// Only a test that sets GODEBUG can reach this case, because Go has otherwise
+// replaced panic(nil) with a *runtime.PanicNilError since 1.21. Without it,
+// recover returns nil and a nil check would count the rule as a success.
+func TestPlanNilPanicStopsEvaluation(t *testing.T) {
+	t.Setenv("GODEBUG", "panicnil=1")
+	plan := newTestPlan(t, []Rule{
+		{Name: "Root"},
+		{Name: "Explode", DependsOn: []int{0}},
+		{Name: "Dependent", DependsOn: []int{1}},
+	})
+	for _, limit := range []int{0, 1, 2} {
+		t.Run(fmt.Sprintf("parallel=%d", limit), func(t *testing.T) {
+			var dependentRan atomic.Bool
+			recovered := runRecovering(t.Context(), plan, Options{MaxParallel: limit}, func(_ context.Context, id int) error {
+				switch id {
+				case 1:
+					explode(nil)
+				case 2:
+					dependentRan.Store(true)
+				}
+				return nil
+			})
+			panicError := requirePanicError(t, recovered, "Explode")
+			if panicError.Value != nil {
+				t.Fatalf("panic value = %v, want nil; is panicnil=1 still in effect?", panicError.Value)
+			}
+			if dependentRan.Load() {
+				t.Fatal("dependent ran on a producer that panicked")
+			}
+		})
+	}
+}
+
 func TestPlanCancellation(t *testing.T) {
 	plan := newTestPlan(t, []Rule{{Name: "Root"}, {Name: "Child", DependsOn: []int{0}}})
 	for _, limit := range []int{1, 4} {
