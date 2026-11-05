@@ -60,6 +60,7 @@ type compiler struct {
 	pkg     *packages.Package
 	facts   map[string]fact
 	rules   []rule
+	inputs  []field
 	outputs []field
 }
 
@@ -128,11 +129,11 @@ func Generate(config Config) ([]byte, error) {
 		}
 	}
 	c := &compiler{pkg: pkg, facts: make(map[string]fact)}
-	inputs, err := c.fields(config.Inputs)
+	c.inputs, err = c.fields(config.Inputs)
 	if err != nil {
 		return nil, err
 	}
-	for _, input := range inputs {
+	for _, input := range c.inputs {
 		f := input.fact
 		f.producer, f.field = -1, input.name
 		c.facts[f.name] = f
@@ -401,6 +402,18 @@ func (c *compiler) emit(config Config) ([]byte, error) {
 		return alias
 	}
 	var body bytes.Buffer
+	// Go types omit parameter names, so these guards detect only contract drift.
+	// Struct conversion ignores tags, which leaves tag changes to check mode.
+	emitGuard := func(contract string, fields []field) {
+		fmt.Fprintln(&body, "var _ = struct {")
+		for _, f := range fields {
+			fmt.Fprintf(&body, "%s %s\n", f.name, types.TypeString(f.fact.typ, qualifier))
+		}
+		// The compiler reports the closing line, so the advice belongs there.
+		fmt.Fprintf(&body, "}(%s{}) // If this fails to compile, %s changed. Run go generate to update this file.\n\n", contract, contract)
+	}
+	emitGuard(config.Inputs, c.inputs)
+	emitGuard(config.Outputs, c.outputs)
 	fmt.Fprintf(&body, "var _infergoPlan = func() *%s.Plan {\n", runtimeAlias)
 	fmt.Fprintf(&body, "plan, err := %s.NewPlan([]%s.Rule{\n", runtimeAlias, runtimeAlias)
 	for _, id := range ids {

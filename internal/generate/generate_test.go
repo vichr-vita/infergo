@@ -248,6 +248,54 @@ func TestInputOnlyEvaluator(t *testing.T) {
 	}
 }
 
+func TestStaleContractStopsCompilingUntilRegenerated(t *testing.T) {
+	// Deadline reaches no rule, so only the guard imports time.
+	contract := `package rules
+import "time"
+type Inputs struct {
+    Seed int ` + "`fact:\"seed\"`" + `
+    Deadline *time.Time ` + "`fact:\"deadline\"`" + `
+}
+func Total(seed int) (total int) { return seed + 1 }
+`
+	config := fixture(t, contract+"type Outputs struct { Total int `fact:\"total\"` }\n")
+	rules := filepath.Join(config.Dir, config.RuleFiles[0])
+	output := filepath.Join(config.Dir, config.OutputFile)
+	build := func() ([]byte, error) {
+		command := exec.CommandContext(t.Context(), "go", "build", "./...")
+		command.Dir = config.Dir
+		command.Env = append(os.Environ(), "GOWORK=off")
+		return command.CombinedOutput()
+	}
+	regenerate := func() {
+		t.Helper()
+		source, err := Generate(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(t, output, string(source))
+		if result, err := build(); err != nil {
+			t.Fatalf("regenerated evaluator failed: %v\n%s", err, result)
+		}
+	}
+	regenerate()
+
+	write(t, rules, contract+`type Outputs struct {
+    Total int `+"`fact:\"total\"`"+`
+    Bonus int `+"`fact:\"bonus\"`"+`
+}
+func Bonus(total int) (bonus int) { return total * 2 }
+`)
+	result, err := build()
+	if err == nil {
+		t.Fatal("stale evaluator compiled")
+	}
+	if want := "cannot convert Outputs{}"; !bytes.Contains(result, []byte(want)) || !bytes.Contains(result, []byte(config.OutputFile)) {
+		t.Fatalf("build output does not report %q in %s:\n%s", want, config.OutputFile, result)
+	}
+	regenerate()
+}
+
 func TestGeneratedTraceIncludesFinishedAndCanceledWork(t *testing.T) {
 	config := fixture(t, `package rules
 import ("context"; "errors")

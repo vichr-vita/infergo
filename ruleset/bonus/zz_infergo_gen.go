@@ -7,6 +7,31 @@ import (
 	_infergo_runtime "github.com/vichr-vita/infergo"
 )
 
+var _ = struct {
+	EmployeeID          string
+	Active              bool
+	TenureMonths        uint16
+	PerformanceScore    uint8
+	SalaryCents         uint64
+	Role                Role
+	Department          Department
+	TrainingComplete    bool
+	DisciplinaryHold    bool
+	CompanyTargetMet    bool
+	EmployeeBudgetCents uint64
+	ManagerApproved     bool
+	FinanceApproved     bool
+	CriticalSkill       bool
+}(Inputs{}) // If this fails to compile, Inputs changed. Run go generate to update this file.
+
+var _ = struct {
+	FinalBonusCents        uint64
+	TotalCompensationCents uint64
+	PaymentReadyCents      *uint64
+	ReviewRequired         *string
+	PaymentReference       *string
+}(Outputs{}) // If this fails to compile, Outputs changed. Run go generate to update this file.
+
 var _infergoPlan = func() *_infergo_runtime.Plan {
 	plan, err := _infergo_runtime.NewPlan([]_infergo_runtime.Rule{
 		{Name: "GoodPerformance", DependsOn: []int{}},
