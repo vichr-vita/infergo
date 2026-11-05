@@ -665,3 +665,140 @@ func TestTrace(t *testing.T) {
 		t.Fatalf("traced cancellation failed: %v\n%s", err, output)
 	}
 }
+
+// buildPackage compiles the fixture with source as its generated file.
+func buildPackage(t *testing.T, config Config, source []byte) {
+	t.Helper()
+	write(t, filepath.Join(config.Dir, config.OutputFile), string(source))
+	command := exec.Command("go", "build", "./...")
+	command.Dir = config.Dir
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("generated code does not build: %v\n%s\n%s", err, output, source)
+	}
+}
+
+// Fields of another package's struct can use types the ruleset cannot name.
+func TestContractFromAnotherPackageBuildsWithoutGuard(t *testing.T) {
+	dependency := map[string]struct{ imports, field string }{
+		"unexported type":              {field: "hidden"},
+		"struct with unexported field": {field: "struct{ hidden int }"},
+		"internal package type":        {imports: `import "example.com/rules/dep/internal/secret"`, field: "secret.Value"},
+	}
+	for name, contract := range dependency {
+		for _, declaration := range []string{"type Inputs = dep.In", "type Inputs dep.In"} {
+			t.Run(name+"/"+declaration, func(t *testing.T) {
+				config := fixture(t, `package rules
+import "example.com/rules/dep"
+`+declaration+`
+type Outputs struct { Value int `+"`fact:\"value\"`"+` }
+func Rule() (value int) { return 1 }
+`)
+				secret := filepath.Join(config.Dir, "dep", "internal", "secret")
+				if err := os.MkdirAll(secret, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				write(t, filepath.Join(secret, "secret.go"), "package secret\ntype Value int\n")
+				write(t, filepath.Join(config.Dir, "dep", "dep.go"), fmt.Sprintf(
+					"package dep\n%s\ntype hidden int\ntype In struct { Field %s }\n", contract.imports, contract.field))
+
+				result, err := Generate(config)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if bytes.Contains(result.Source, []byte("}(Inputs{})")) {
+					t.Fatalf("foreign contract has a guard:\n%s", result.Source)
+				}
+				if !bytes.Contains(result.Source, []byte("}(Outputs{})")) {
+					t.Fatalf("local contract lost its guard:\n%s", result.Source)
+				}
+				buildPackage(t, config, result.Source)
+			})
+		}
+	}
+}
+
+func TestLineEndingsDoNotChangeOutput(t *testing.T) {
+	rules := `package rules
+type Inputs struct { Seed int ` + "`fact:\"seed\"`" + ` }
+type Outputs struct { Value int ` + "`fact:\"value\"`" + ` }
+// Rule adds one.
+// BR-01.
+func Rule(seed int) (value int) {
+	return seed + 1
+}
+`
+	lf, err := Generate(fixture(t, rules))
+	if err != nil {
+		t.Fatal(err)
+	}
+	crlf, err := Generate(fixture(t, strings.ReplaceAll(rules, "\n", "\r\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(lf.Source, crlf.Source) {
+		t.Fatalf("output differs by line ending:\n%s\n%s", lf.Source, crlf.Source)
+	}
+}
+
+// These packages never type-check as a whole, so a contract error would be false.
+func TestLoadFailuresKeepTheirOwnError(t *testing.T) {
+	contracts := "type Inputs struct { Seed int }\ntype Outputs struct { Seed int }\n"
+	tests := []struct {
+		name   string
+		source string
+		files  map[string]string
+		output string
+		want   string
+	}{
+		{
+			name:   "mismatched package clauses",
+			source: "package rules\n" + contracts,
+			files:  map[string]string{"other.go": "package other\n"},
+			want:   "found packages",
+		},
+		{
+			name:   "no buildable files",
+			source: "//go:build ignore\n\npackage rules\n" + contracts,
+			output: "zz_windows.go",
+			want:   "build constraints exclude all Go files",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := fixture(t, test.source)
+			if test.output != "" {
+				config.OutputFile = test.output
+			}
+			for name, source := range test.files {
+				path := filepath.Join(config.Dir, name)
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				write(t, path, source)
+			}
+			_, err := Generate(config)
+			if err == nil || !strings.HasPrefix(err.Error(), "load ruleset:") || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want load ruleset error with %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestRelativeStripsOnlyPathsInsideTheRuleset(t *testing.T) {
+	dir := filepath.Join(string(filepath.Separator), "work", "rules")
+	inside := filepath.Join(dir, "rules.go")
+	outside := filepath.Join(string(filepath.Separator), "other") + dir + string(filepath.Separator) + "inner.go"
+	tests := map[string]string{
+		inside + ":1:2: failed":         "rules.go:1:2: failed",
+		"see " + inside + "\n" + inside: "see rules.go\nrules.go",
+		`file "` + inside + `"`:         `file "rules.go"`,
+		"(" + inside + ")":              "(rules.go)",
+		outside + ":1:2: failed":        outside + ":1:2: failed",
+	}
+	c := &compiler{dir: dir}
+	for text, want := range tests {
+		if got := c.relative(text); got != want {
+			t.Errorf("relative(%q) = %q, want %q", text, got, want)
+		}
+	}
+}

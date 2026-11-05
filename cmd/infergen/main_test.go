@@ -272,7 +272,7 @@ func execute(t *testing.T, args ...string) (string, error) {
 func TestUpdateLine(t *testing.T) {
 	commandFixture(t)
 	args := []string{"--rules", "rules.go,extra.go"}
-	const updated = "infergen: updated zz_infergo_gen.go (2 rules)\n"
+	const updated = "infergen: example.com/rules: updated zz_infergo_gen.go (2 rules)\n"
 	if stderr, err := execute(t, args...); err != nil || stderr != updated {
 		t.Fatalf("first run: %q, error %v", stderr, err)
 	}
@@ -294,7 +294,7 @@ func TestUpdateLine(t *testing.T) {
 	// This rewires Finish to another int fact without changing a contract.
 	write(t, "extra.go", "package rules\nfunc Finish(seed int) (value int) { return seed }\n")
 	stderr, err := execute(t, args...)
-	if err != nil || !strings.Contains(stderr, "infergen: updated zz_infergo_gen.go (1 rule)\n") {
+	if err != nil || !strings.Contains(stderr, "infergen: example.com/rules: updated zz_infergo_gen.go (1 rule)\n") {
 		t.Fatalf("rewiring run: %q, error %v", stderr, err)
 	}
 }
@@ -312,14 +312,14 @@ func Step(seed int) (middle int) { return seed + 1 }
 func Orphan(seed int) (extra int) { return seed }
 `)
 	warnings := []string{
-		`infergen: warning: rules.go:4:5: input fact "unused" is not used by any output or retained rule`,
-		"infergen: warning: rules.go:8:6: rule Orphan is not needed by any output and was left out",
+		`infergen: example.com/rules: warning: rules.go:4:5: input fact "unused" is not used by any output or retained rule`,
+		"infergen: example.com/rules: warning: rules.go:8:6: rule Orphan is not needed by any output and was left out",
 	}
 	stderr, err := execute(t, args...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range append(warnings, "infergen: updated") {
+	for _, want := range append(warnings, "infergen: example.com/rules: updated") {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("generate output %q lacks %q", stderr, want)
 		}
@@ -362,6 +362,33 @@ infergen: rules.go:5:12: no input or rule produces fact "sed"; did you mean "see
 	printError(&report, errors.New("single"))
 	if report.String() != "infergen: single\n" {
 		t.Fatalf("report: %q", &report)
+	}
+}
+
+func TestCheckModeIgnoresLineEndings(t *testing.T) {
+	commandFixture(t)
+	write(t, "rules.go", strings.ReplaceAll(`package rules
+type Inputs struct { Seed int }
+type Outputs struct { Value int `+"`fact:\"value\"`"+` }
+func Rule(Seed int) (value int) {
+	return Seed + 1
+}
+`, "\n", "\r\n"))
+	generate := newCommand()
+	generate.SetArgs([]string{"--rules", "rules.go"})
+	if err := generate.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.ReadFile("zz_infergo_gen.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, "zz_infergo_gen.go", strings.ReplaceAll(string(source), "\n", "\r\n"))
+
+	check := newCommand()
+	check.SetArgs([]string{"--rules", "rules.go", "--check"})
+	if err := check.Execute(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -493,7 +520,7 @@ func TestViewPrintsWarnings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "infergen: warning: orphan.go:2:6: rule Orphan is not needed"; !strings.Contains(stderr, want) {
+	if want := "infergen: example.com/rules: warning: orphan.go:2:6: rule Orphan is not needed"; !strings.Contains(stderr, want) {
 		t.Fatalf("stderr %q lacks %q", stderr, want)
 	}
 }

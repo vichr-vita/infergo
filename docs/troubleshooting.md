@@ -20,7 +20,7 @@ and fact names vary by ruleset.
 | `read config:` | Check the selected path, file permissions, extension, and syntax. An explicit config file must exist. |
 | `decode config:` | Check value types. Use a list of file names for `rules` and strings for the other settings. |
 | `read ruleset package:` | The first rule file could not be read or its package clause could not be parsed. Check the path and Go syntax. |
-| `load ruleset:` | Fix the reported Go package or dependency errors. Source must type-check with the configured generated file excluded. |
+| `load ruleset:` | Fix the reported Go package or dependency errors. Source may refer to the generated API, because the generator hides the configured generated file and declares stubs in its place. Everything else must type-check. |
 | `missing or excluded by build constraints` | Select an existing file in the active build and check build tags, `GOOS`, `GOARCH`, and `GOFLAGS`. |
 | `must be a non-test .go file` | Keep rules and output in the current ruleset directory. Avoid `_test.go` paths and do not select the output as a rule file. |
 | `is selected twice` | Remove duplicate paths from the rule selection. |
@@ -100,7 +100,7 @@ First check whether any requested output depends on it. Unneeded rules do not
 appear in the evaluator, and the generator warns about each one:
 
 ```text
-infergen: warning: rules.go:12:6: rule Orphan is not needed by any output and was left out
+infergen: example.com/rules: warning: rules.go:12:6: rule Orphan is not needed by any output and was left out
 ```
 
 To keep the rule, consume its fact in a retained rule or add the fact to the

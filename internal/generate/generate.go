@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -76,6 +77,9 @@ type fact struct {
 type field struct {
 	name string
 	fact fact
+	// local reports that the field is declared in the ruleset package, so its
+	// type can be spelled there. Fields of another package's struct may not be.
+	local bool
 }
 
 type rule struct {
@@ -186,8 +190,8 @@ func Generate(config Config) (Result, error) {
 			c.addRule(c.pkg.TypesInfo.Defs[fn.Name].(*types.Func))
 			start, end := c.pkg.Fset.Position(fn.Pos()).Offset, c.pkg.Fset.Position(fn.End()).Offset
 			r := &c.rules[len(c.rules)-1]
-			r.source = string(raw[start:end])
-			r.requirement = strings.TrimSpace(fn.Doc.Text())
+			r.source = stripCarriageReturns(string(raw[start:end]))
+			r.requirement = stripCarriageReturns(strings.TrimSpace(fn.Doc.Text()))
 		}
 	}
 	c.validate()
@@ -204,6 +208,12 @@ func Generate(config Config) (Result, error) {
 		Source: source, Ruleset: ruleset, Package: c.pkg.PkgPath, PackageName: c.pkg.Name,
 		Rules: len(ids), Notes: c.unusedDeclarations(ids),
 	}, nil
+}
+
+// stripCarriageReturns keeps embedded text independent of the file's line
+// endings, so a CRLF checkout generates the same bytes as an LF one.
+func stripCarriageReturns(text string) string {
+	return strings.ReplaceAll(text, "\r", "")
 }
 
 // load type-checks the ruleset with the configured generated file replaced, so
@@ -284,12 +294,14 @@ func Evaluate(%[2]s.Context, %[5]s, %[3]s.Options) (%[6]s, error) { for {} }
 `, packageName, contextAlias, runtimeAlias, runtimePath, config.Inputs, config.Outputs)
 }
 
-// recoverable reports whether the package parsed, so that its scope is complete
-// and stubs might resolve its errors. The compiler's own failure reaches go list
-// as a ListError, so that kind says nothing about whether stubs can help.
+// recoverable reports whether the package parsed and go list accepted it, so
+// that its scope is complete and stubs might resolve its errors. The compiler's
+// own failure also arrives as a ListError, headed "# <package>", and stubs can
+// help with that one. Any other ListError means the package never type-checked
+// as a whole, so its scope cannot support contract diagnostics.
 func recoverable(pkg *packages.Package) bool {
-	return pkg.Types != nil && !slices.ContainsFunc(pkg.Errors, func(err packages.Error) bool {
-		return err.Kind == packages.ParseError
+	return pkg.Types != nil && len(pkg.Syntax) != 0 && !slices.ContainsFunc(pkg.Errors, func(err packages.Error) bool {
+		return err.Kind == packages.ParseError || err.Kind == packages.ListError && !strings.HasPrefix(err.Msg, "# ")
 	})
 }
 
@@ -302,9 +314,11 @@ func (c *compiler) loadError() error {
 }
 
 // relative strips the ruleset directory from every path in text. All paths the
-// generator prints pass through here.
+// generator prints pass through here. Only a path that starts with the directory
+// matches, so a longer path that merely contains it stays intact.
 func (c *compiler) relative(text string) string {
-	return strings.ReplaceAll(text, c.dir+string(filepath.Separator), "")
+	prefix := regexp.MustCompile("(^|[\\s\"'`(\\[:=,])" + regexp.QuoteMeta(c.dir+string(filepath.Separator)))
+	return prefix.ReplaceAllString(text, "$1")
 }
 
 func (c *compiler) position(pos token.Pos) token.Position {
@@ -397,9 +411,17 @@ func (c *compiler) fields(name string) ([]field, bool) {
 		if factName != "" {
 			seen[factName] = len(fields)
 		}
-		fields = append(fields, field{name: f.Name(), fact: fact{name: factName, typ: f.Type(), pos: f.Pos(), uncertain: rejected}})
+		fields = append(fields, field{
+			name:  f.Name(),
+			fact:  fact{name: factName, typ: f.Type(), pos: f.Pos(), uncertain: rejected},
+			local: f.Pkg() == c.pkg.Types,
+		})
 	}
 	return fields, true
+}
+
+func allLocal(fields []field) bool {
+	return !slices.ContainsFunc(fields, func(f field) bool { return !f.local })
 }
 
 func isError(t types.Type) bool {
@@ -723,7 +745,12 @@ func (c *compiler) emit(config Config, ids []int, ruleset infergo.Ruleset) ([]by
 	var body bytes.Buffer
 	// Go types omit parameter names, so these guards detect only contract drift.
 	// Struct conversion ignores tags, which leaves tag changes to check mode.
+	// A contract with fields from another package gets no guard, because those
+	// fields may use types this package cannot name. Check mode still covers it.
 	emitGuard := func(contract string, fields []field) {
+		if !allLocal(fields) {
+			return
+		}
 		fmt.Fprintln(&body, "var _ = struct {")
 		for _, f := range fields {
 			fmt.Fprintf(&body, "%s %s\n", f.name, types.TypeString(f.fact.typ, qualifier))
