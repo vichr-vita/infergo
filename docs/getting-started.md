@@ -94,8 +94,10 @@ func Evaluate(ctx context.Context, input Inputs, options infergo.Options) (Outpu
 ```
 
 Do not edit the generated file. Change the rules or contracts and run generation
-again. `go build` and `go test` do not run `go generate` automatically, so
-building before this step fails with `undefined: Evaluate`.
+again. `go build` and `go test` do not run `go generate` automatically. Until
+you generate, `score` has no `Evaluate`, so code that calls it fails to compile.
+`go build ./...` reports `undefined: score.Evaluate` for `main.go`, and
+`go vet` or `go test` report `undefined: Evaluate` for a test file.
 
 ## Call the evaluator
 

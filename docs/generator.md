@@ -44,8 +44,8 @@ spellings such as `-rules` and `-out` are not supported.
 Select multiple files using a comma-separated list or repeated flags:
 
 ```sh
-infergen --rules rates.go,awards.go
-infergen --rules rates.go --rules awards.go
+go tool infergen --rules rates.go,awards.go
+go tool infergen --rules rates.go --rules awards.go
 ```
 
 Whitespace around file names is trimmed. Blank entries and duplicate paths are
@@ -75,13 +75,13 @@ contract names and output file.
 To select a file elsewhere:
 
 ```sh
-infergen --config ../config/bonus.yaml
+go tool infergen --config ../config/bonus.yaml
 ```
 
 Or set the configuration path through the environment:
 
 ```sh
-INFERGEN_CONFIG=../config/bonus.yaml infergen
+INFERGEN_CONFIG=../config/bonus.yaml go tool infergen
 ```
 
 `--config` overrides `INFERGEN_CONFIG`. The config path is chosen before reading
@@ -101,7 +101,7 @@ For generator settings, the precedence is:
 Use a comma-separated value for `INFERGEN_RULES`:
 
 ```sh
-INFERGEN_RULES=rates.go,awards.go INFERGEN_OUT=generated.go infergen
+INFERGEN_RULES=rates.go,awards.go INFERGEN_OUT=generated.go go tool infergen
 ```
 
 Empty environment variables are treated as unset. An explicit `--rules` list

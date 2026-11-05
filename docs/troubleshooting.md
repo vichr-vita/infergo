@@ -67,11 +67,14 @@ dependency survives `go mod tidy`. Review the resulting module changes. The
 command and generated runtime should use the same selected Infergo module
 version.
 
-### `undefined: Evaluate` before the first generation
+### `undefined: Evaluate` or `undefined: score.Evaluate` before the first generation
 
-If `go build` or `go vet` reports `undefined: Evaluate` and the generated file
-does not exist yet, `go generate` has not run. Run `go generate ./...` from the
-module root, then build again.
+If `go build ./...` reports `undefined: score.Evaluate` (a caller in another
+package) or `go vet` or `go test` reports `undefined: Evaluate` (a test file in
+the ruleset package), and the generated file does not exist yet, `go generate`
+has not run. Run `go generate ./...` from the module root, then build again.
+`go build` on the ruleset package alone succeeds, because nothing in it calls
+`Evaluate`.
 
 ## An unused rule fails generation
 
