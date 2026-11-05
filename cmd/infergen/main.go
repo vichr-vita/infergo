@@ -123,7 +123,8 @@ func ruleCount(rules int) string {
 }
 
 // checkFile fails unless path already holds the generated source. It never
-// writes. The package path identifies the failure in go generate ./... output.
+// writes. CRLF in the file on disk is ignored so that an autocrlf checkout
+// passes. The package path identifies the failure in go generate ./... output.
 func checkFile(path string, result generate.Result) error {
 	existing, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -132,7 +133,7 @@ func checkFile(path string, result generate.Result) error {
 	if err != nil {
 		return fmt.Errorf("read generated file: %w", err)
 	}
-	if !bytes.Equal(existing, result.Source) {
+	if !bytes.Equal(bytes.ReplaceAll(existing, []byte("\r\n"), []byte("\n")), result.Source) {
 		return fmt.Errorf("%s: %s is out of date; run go generate", result.Package, path)
 	}
 	return nil

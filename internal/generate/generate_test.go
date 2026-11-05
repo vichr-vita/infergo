@@ -646,3 +646,77 @@ func TestTrace(t *testing.T) {
 		t.Fatalf("traced cancellation failed: %v\n%s", err, output)
 	}
 }
+
+// buildPackage compiles the fixture with source as its generated file.
+func buildPackage(t *testing.T, config Config, source []byte) {
+	t.Helper()
+	write(t, filepath.Join(config.Dir, config.OutputFile), string(source))
+	command := exec.Command("go", "build", "./...")
+	command.Dir = config.Dir
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("generated code does not build: %v\n%s\n%s", err, output, source)
+	}
+}
+
+// Fields of another package's struct can use types the ruleset cannot name.
+func TestContractFromAnotherPackageBuildsWithoutGuard(t *testing.T) {
+	dependency := map[string]struct{ imports, field string }{
+		"unexported type":              {field: "hidden"},
+		"struct with unexported field": {field: "struct{ hidden int }"},
+		"internal package type":        {imports: `import "example.com/rules/dep/internal/secret"`, field: "secret.Value"},
+	}
+	for name, contract := range dependency {
+		for _, declaration := range []string{"type Inputs = dep.In", "type Inputs dep.In"} {
+			t.Run(name+"/"+declaration, func(t *testing.T) {
+				config := fixture(t, `package rules
+import "example.com/rules/dep"
+`+declaration+`
+type Outputs struct { Value int `+"`fact:\"value\"`"+` }
+func Rule() (value int) { return 1 }
+`)
+				secret := filepath.Join(config.Dir, "dep", "internal", "secret")
+				if err := os.MkdirAll(secret, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				write(t, filepath.Join(secret, "secret.go"), "package secret\ntype Value int\n")
+				write(t, filepath.Join(config.Dir, "dep", "dep.go"), fmt.Sprintf(
+					"package dep\n%s\ntype hidden int\ntype In struct { Field %s }\n", contract.imports, contract.field))
+
+				result, err := Generate(config)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if bytes.Contains(result.Source, []byte("}(Inputs{})")) {
+					t.Fatalf("foreign contract has a guard:\n%s", result.Source)
+				}
+				if !bytes.Contains(result.Source, []byte("}(Outputs{})")) {
+					t.Fatalf("local contract lost its guard:\n%s", result.Source)
+				}
+				buildPackage(t, config, result.Source)
+			})
+		}
+	}
+}
+
+func TestLineEndingsDoNotChangeOutput(t *testing.T) {
+	rules := `package rules
+type Inputs struct { Seed int ` + "`fact:\"seed\"`" + ` }
+type Outputs struct { Value int ` + "`fact:\"value\"`" + ` }
+// Rule adds one.
+// BR-01.
+func Rule(seed int) (value int) {
+	return seed + 1
+}
+`
+	lf, err := Generate(fixture(t, rules))
+	if err != nil {
+		t.Fatal(err)
+	}
+	crlf, err := Generate(fixture(t, strings.ReplaceAll(rules, "\n", "\r\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(lf.Source, crlf.Source) {
+		t.Fatalf("output differs by line ending:\n%s\n%s", lf.Source, crlf.Source)
+	}
+}

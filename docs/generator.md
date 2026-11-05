@@ -50,8 +50,11 @@ infergen --rules rates.go --rules awards.go
 ```
 
 Whitespace around file names is trimmed. Blank entries and duplicate paths are
-errors. `--inputs` and `--outputs` name types in the current package, not file
-paths or qualified names from another package.
+errors. `--inputs` and `--outputs` name a type declared in the current package,
+not a file path or a qualified name such as `dep.In`. That type may be an alias
+or a defined type of a struct from another package, for example
+`type Inputs = dep.In`. See [Generated declarations](#generated-declarations) for
+what such a contract gives up.
 
 ## Configuration files
 
@@ -139,8 +142,9 @@ correctly, because the stubs have the same signatures as the generated code.
 The output contains:
 
 - A generated-code header and the ruleset's package declaration.
-- A struct conversion for each of the input and output contracts, which stops
-  compiling if a contract's field names, types, or order change after generation.
+- A struct conversion for each input and output contract whose fields are all
+  declared in the ruleset package. It stops compiling if the contract's field
+  names, types, or order change after generation.
 - An unexported `_infergoPlan`, built once during package initialization.
 - An exported `Evaluate` function using your selected input and output types.
 - `Ruleset` metadata, `EvaluateTrace` diagnostic evaluation, and a typed
@@ -163,6 +167,16 @@ The generated file does not inherit build tags from rule files. If your ruleset
 varies by platform or build tags, ensure the generated file and its referenced
 rules are compiled together in every supported configuration. Separate packages
 are often easier to maintain than several graph variants in one directory.
+
+The contract conversions are fixed at generation time too. If a contract's fields
+vary by build tag or platform, or an array length comes from a platform-dependent
+constant, the conversion fails to compile on any configuration other than the one
+that generated it.
+
+A contract whose fields are declared in another package, such as
+`type Inputs = dep.In` or `type Inputs dep.In`, gets no conversion, because those
+fields can use types the ruleset package cannot name. Field changes in that
+package do not break the build, so `--check` is the only protection for it.
 
 ## Writes and failures
 
@@ -219,8 +233,8 @@ generated `Ruleset` metadata embeds each rule's source and doc comment, though.
 Until you regenerate, the viewer shows the old text and the check below fails.
 
 The compiler catches some staleness. The contract conversions in the generated
-file stop compiling when an input or output struct gains, loses, reorders, or
-retypes a field. Other changes still compile. Go types do not record parameter
+file stop compiling when an input or output struct declared in the ruleset package
+gains, loses, reorders, or retypes a field. Other changes still compile. Go types do not record parameter
 names, so renaming a parameter to another fact of the same type keeps the old
 wiring until you regenerate. Struct conversion ignores tags, so a changed `fact`
 tag behaves the same way.
