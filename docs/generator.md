@@ -127,10 +127,12 @@ which source files the loader sees. A selected file excluded by build constraint
 is an error. There is no dedicated `--tags` option; use the Go build environment,
 such as `GOFLAGS`, when needed.
 
-The loader overlays the configured generated file with a package-only source
-file. This lets it regenerate absent or stale output. All remaining non-test
-package source must type-check without the generated declarations. Keep callers
-of `Evaluate` in another package or in tests.
+The loader replaces the configured generated file with a package-only source
+file, so it can regenerate absent or stale output. If the package doesn't
+type-check that way, the loader tries again with stubs of `Evaluate`,
+`EvaluateTrace`, `Ruleset`, `ViewerCase`, and `ExportHTML` in that file. This lets
+non-test files in the ruleset package call the generated API. They must call it
+correctly, because the stubs have the same signatures as the generated code.
 
 ## Generated declarations
 
@@ -164,15 +166,45 @@ are often easier to maintain than several graph variants in one directory.
 
 ## Writes and failures
 
-On success, the CLI writes a temporary file in the output directory, sets its
-mode to `0644`, closes it, and renames it over the destination. It prints no
-success message. The destination is replaced, so choose a file reserved for
-generated code. With `--check`, the CLI compares instead and writes nothing.
+When the generated source differs from the existing output, the CLI writes a
+temporary file in the output directory, sets its mode to `0644`, closes it, and
+renames it over the destination. It then prints one line to standard error:
+
+```text
+infergen: updated zz_infergo_gen.go (4 rules)
+```
+
+If the content already matches, the CLI leaves the file alone and prints no such
+line, so a generation that changes nothing is quiet. The destination is replaced,
+so choose a file reserved for generated code. With `--check`, the CLI compares
+instead and writes nothing.
 
 Generation or temporary-write failures leave an existing output untouched.
 Errors go to standard error with an `infergen:` prefix, and the process exits
-with status 1. Many declaration errors include source locations; config and path
-errors may not. See [Troubleshooting](troubleshooting.md).
+with status 1. One run reports every declaration and graph error in source order.
+After 10 errors it prints `too many errors` and stops, as the Go compiler does.
+Go package load and type-check failures end the run on their own, because the
+rules can't be read until the package compiles.
+
+Source positions are relative to the ruleset directory. Config and path errors
+may have no position. A missing fact gets a suggestion when a known fact name is
+close:
+
+```text
+infergen: rules.go:5:13: no input or rule produces fact "sed"; did you mean "seed"?
+```
+
+A successful run can also print warnings to standard error. Warnings never change
+the exit status, and `--check` prints them too:
+
+```text
+infergen: warning: rules.go:12:6: rule Orphan is not needed by any output and was left out
+infergen: warning: rules.go:4:2: input fact "region" is not used by any output or retained rule
+```
+
+An input counts as unused when no retained rule consumes it and no output reads
+it directly, so an input read only by a pruned rule gets a warning as well. See
+[Troubleshooting](troubleshooting.md).
 
 ## Keep generation reproducible
 
@@ -205,6 +237,7 @@ The environment variable reaches every `infergen` process that `go generate`
 starts, so each package keeps its directive unchanged. `--check` does the same
 for a single run. Each process generates as usual, compares the result with the
 existing output file, and writes nothing. It exits silently when the file is
-current. When the file differs or is missing, it exits with status 1 and an error
-that names the file and tells the reader to run `go generate`. The [development
+current, apart from any warnings. When the file differs or is missing, it exits
+with status 1 and an error that names the Go package and the file and tells the
+reader to run `go generate`. The [development
 guide](../CONTRIBUTING.md#verify-a-change) gives commands for this repository.
