@@ -4,14 +4,18 @@ package infergo
 import (
 	"context"
 	"fmt"
+	"runtime"
+	"runtime/debug"
 	"slices"
 	"sync"
+	"sync/atomic"
 )
 
 // Options controls a single evaluation.
 type Options struct {
 	// MaxParallel bounds running rules. Zero and one execute sequentially,
-	// without worker goroutines. Negative values are invalid.
+	// without worker goroutines. Negative values are invalid. A rule panic
+	// reaches the caller of Plan.Run at every value.
 	MaxParallel int
 }
 
@@ -29,6 +33,26 @@ type RuleError struct {
 
 func (e *RuleError) Error() string { return fmt.Sprintf("rule %s: %v", e.Rule, e.Err) }
 func (e *RuleError) Unwrap() error { return e.Err }
+
+// PanicError is the value Plan.Run panics with when a rule panics. It has the
+// same form at every MaxParallel, so a caller's recover needs only one case.
+type PanicError struct {
+	Rule  string
+	Value any    // The value the rule panicked with.
+	Stack []byte // The stack at the panic site, as formatted by debug.Stack.
+}
+
+// Error names the rule and includes the stack, because a crash from an
+// unrecovered PanicError prints only this text and the caller's stack.
+func (e *PanicError) Error() string {
+	return fmt.Sprintf("rule %s panicked: %v\n\n%s", e.Rule, e.Value, e.Stack)
+}
+
+// Unwrap returns Value if it is an error, and nil otherwise.
+func (e *PanicError) Unwrap() error {
+	err, _ := e.Value.(error)
+	return err
+}
 
 // Plan is an immutable dependency graph. A plan can serve concurrent evaluations;
 // each call to Run must use its own fact storage.
@@ -90,6 +114,12 @@ func NewPlan(rules []Rule) (*Plan, error) {
 // synchronizes those writes with dependent rules. On failure or cancellation,
 // Run cancels the execution context and waits for running calls before returning.
 // Rules that ignore cancellation can delay that return.
+//
+// A rule that panics stops evaluation the same way. Once started calls have
+// returned, Run panics on its caller's goroutine with a *PanicError, whatever
+// the MaxParallel. That panic takes precedence over errors and cancellation, and
+// Run raises only one if several rules panic. Likewise, a rule that calls
+// runtime.Goexit, as t.FailNow does, ends the goroutine that called Run.
 func (p *Plan) Run(ctx context.Context, options Options, execute func(context.Context, int) error) error {
 	if options.MaxParallel < 0 {
 		return fmt.Errorf("infergo: MaxParallel must not be negative")
@@ -105,7 +135,11 @@ func (p *Plan) Run(ctx context.Context, options Options, execute func(context.Co
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := execute(ctx, id); err != nil {
+			panicked, err := p.call(ctx, id, execute)
+			if panicked != nil {
+				panic(panicked)
+			}
+			if err != nil {
 				return &RuleError{Rule: p.names[id], Err: err}
 			}
 		}
@@ -119,18 +153,49 @@ func (p *Plan) Run(ctx context.Context, options Options, execute func(context.Co
 	jobs := make(chan int)
 	// Every running worker can finish even after the coordinator stops reading.
 	completed := make(chan completion, limit)
+	// Evaluation-local, because a plan can serve concurrent runs. Workers record
+	// these and cancel, which stops the coordinator without a completion.
+	var firstPanic atomic.Pointer[PanicError]
+	var exited atomic.Bool
 	var workers sync.WaitGroup
 	for range limit {
 		workers.Go(func() {
+			// The loop ends early only if a rule calls runtime.Goexit.
+			drained := false
+			defer func() {
+				if !drained {
+					exited.Store(true)
+					cancel()
+				}
+			}()
 			for id := range jobs {
-				completed <- completion{id: id, err: execute(ctx, id)}
+				// The coordinator can dispatch as cancellation arrives.
+				if ctx.Err() != nil {
+					continue
+				}
+				panicked, err := p.call(ctx, id, execute)
+				if panicked != nil {
+					firstPanic.CompareAndSwap(nil, panicked)
+					cancel()
+					continue
+				}
+				completed <- completion{id: id, err: err}
 			}
+			drained = true
 		})
 	}
+	// Raising from here replaces any error Run was returning. Workers have
+	// stopped by then, so nothing is left running and no panic can be missed.
 	defer func() {
 		cancel()
 		close(jobs)
 		workers.Wait()
+		if panicked := firstPanic.Load(); panicked != nil {
+			panic(panicked)
+		}
+		if exited.Load() {
+			runtime.Goexit()
+		}
 	}()
 
 	pending := slices.Clone(p.pending)
@@ -171,4 +236,15 @@ func (p *Plan) Run(ctx context.Context, options Options, execute func(context.Co
 		}
 	}
 	return ctx.Err()
+}
+
+// call runs one rule and returns a panic instead of unwinding, so the caller can
+// choose where to raise it. A runtime.Goexit in the rule still ends the goroutine.
+func (p *Plan) call(ctx context.Context, id int, execute func(context.Context, int) error) (panicked *PanicError, err error) {
+	defer func() {
+		if value := recover(); value != nil {
+			panicked = &PanicError{Rule: p.names[id], Value: value, Stack: debug.Stack()}
+		}
+	}()
+	return nil, execute(ctx, id)
 }

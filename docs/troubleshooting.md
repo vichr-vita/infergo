@@ -97,7 +97,19 @@ fact. With concurrent failures, the observed rule name can vary between runs.
 Infergo waits for started rule calls to finish. Pass the received context to
 blocking I/O and check it during long computations. A rule that ignores
 cancellation can hold up `Evaluate` after the caller's deadline. The engine does
-not kill goroutines or recover panics.
+not kill goroutines.
+
+## A rule panics
+
+Put `recover` on the goroutine that calls `Evaluate`. The recovered value is an
+`*infergo.PanicError` at every `MaxParallel`. Its `Rule` field names the rule,
+`Value` holds the original panic value, and `Stack` shows where the panic
+happened. If existing code compares the recovered value directly, read `Value`
+or use `errors.Is`.
+
+The panic reaches the caller only after started rules return, so a rule that
+ignores cancellation delays it. `EvaluateTrace` and `ExportHTML` panic the same
+way and return no snapshot or HTML. See [Rule panics](runtime.md#rule-panics).
 
 ## Parallel execution races or is slower
 

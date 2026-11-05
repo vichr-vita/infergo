@@ -126,9 +126,61 @@ indefinitely, including in sequential mode. A context deadline is not a hard
 timeout for a function that does not honor it. Infergo waits for rule calls it
 started, not detached goroutines that those rules create.
 
-The evaluator does not recover panics. A panic follows normal Go behavior and
-does not become a `RuleError`. Return errors for expected failures. Side effects
-and mutations outside the generated fact storage are not rolled back.
+Return errors for expected failures. Side effects and mutations outside the
+generated fact storage are not rolled back, whether a rule fails or panics.
+
+## Rule panics
+
+A panic in a rule stays a panic. It does not become a returned error or a
+`RuleError`. At every `MaxParallel` value, it surfaces on the goroutine that
+called `Evaluate` or `Run`, so a `recover` there behaves the same in sequential
+and parallel execution. The recovered value is always an `*infergo.PanicError`:
+
+```go
+type PanicError struct {
+    Rule  string
+    Value any
+    Stack []byte
+}
+```
+
+`Rule` contains the rule's name, `Value` is the value passed to `panic`, and
+`Stack` is the stack at the panic site. `Unwrap()` returns `Value` when it is an
+error, so `errors.Is` and `errors.As` can match the cause. `Error()` includes the
+rule, the value, and the stack, because a crash from an unrecovered panic prints
+that text and would otherwise lose the panic site. Log it, but do not send it to
+clients. Code that compares a recovered value directly must read `Value` or use
+`errors.Is` instead.
+
+This handler logs a rule panic and passes any other panic along:
+
+```go
+defer func() {
+    switch recovered := recover().(type) {
+    case nil:
+    case *infergo.PanicError:
+        log.Printf("rule %s panicked: %v\n%s", recovered.Rule, recovered.Value, recovered.Stack)
+    default:
+        panic(recovered)
+    }
+}()
+```
+
+A panic follows the failure cleanup above. The scheduler stops dispatching,
+cancels the execution context, and waits for started rule calls to return before
+it panics on the caller's goroutine. A rule that ignores cancellation therefore
+delays the panic too. No dependent of the panicking rule runs.
+
+If several rules panic, the caller sees one of them and the others are dropped.
+A panic takes precedence over returned errors and cancellation, even when the
+scheduler observed one of those first.
+
+`EvaluateTrace` and `ExportHTML` panic the same way. They return no snapshot and
+no HTML, so a panicking case stops the whole export.
+
+A rule that calls `runtime.Goexit`, for example through `t.FailNow`, gets the
+same cleanup. The goroutine that called `Evaluate` or `Run` then exits, as it
+would in sequential execution, unless another rule panicked.
 
 ## Rule and NewPlan
 
@@ -180,7 +232,8 @@ dispatch, and result assembly.
 `Run` returns errors with the same options, cancellation, and `RuleError`
 semantics described above. It does not erase values your callback wrote before
 an error. The generated `Evaluate` wrapper is what hides partial results behind
-a zero output struct.
+a zero output struct. A panic in the callback reaches the caller as described in
+[Rule panics](#rule-panics).
 
 For a nonempty plan, supply a non-nil callback. An empty plan runs no callback
 and succeeds with a valid limit and uncanceled context.
