@@ -90,7 +90,7 @@ func newCommand() *cobra.Command {
 			}
 			stderr := command.ErrOrStderr()
 			for _, note := range result.Notes {
-				fmt.Fprintln(stderr, "infergen: warning:", note)
+				fmt.Fprintf(stderr, "infergen: %s: warning: %s\n", result.Package, note)
 			}
 			if options.Check {
 				return checkFile(options.Out, result)
@@ -100,7 +100,7 @@ func newCommand() *cobra.Command {
 				return err
 			}
 			if updated {
-				fmt.Fprintf(stderr, "infergen: updated %s (%s)\n", options.Out, ruleCount(result.Rules))
+				fmt.Fprintf(stderr, "infergen: %s: updated %s (%s)\n", result.Package, options.Out, ruleCount(result.Rules))
 			}
 			return nil
 		},

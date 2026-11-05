@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -286,12 +287,14 @@ func Evaluate(%[2]s.Context, %[5]s, %[3]s.Options) (%[6]s, error) { for {} }
 `, packageName, contextAlias, runtimeAlias, runtimePath, config.Inputs, config.Outputs)
 }
 
-// recoverable reports whether the package parsed, so that its scope is complete
-// and stubs might resolve its errors. The compiler's own failure reaches go list
-// as a ListError, so that kind says nothing about whether stubs can help.
+// recoverable reports whether the package parsed and go list accepted it, so
+// that its scope is complete and stubs might resolve its errors. The compiler's
+// own failure also arrives as a ListError, headed "# <package>", and stubs can
+// help with that one. Any other ListError means the package never type-checked
+// as a whole, so its scope cannot support contract diagnostics.
 func recoverable(pkg *packages.Package) bool {
-	return pkg.Types != nil && !slices.ContainsFunc(pkg.Errors, func(err packages.Error) bool {
-		return err.Kind == packages.ParseError
+	return pkg.Types != nil && len(pkg.Syntax) != 0 && !slices.ContainsFunc(pkg.Errors, func(err packages.Error) bool {
+		return err.Kind == packages.ParseError || err.Kind == packages.ListError && !strings.HasPrefix(err.Msg, "# ")
 	})
 }
 
@@ -304,9 +307,11 @@ func (c *compiler) loadError() error {
 }
 
 // relative strips the ruleset directory from every path in text. All paths the
-// generator prints pass through here.
+// generator prints pass through here. Only a path that starts with the directory
+// matches, so a longer path that merely contains it stays intact.
 func (c *compiler) relative(text string) string {
-	return strings.ReplaceAll(text, c.dir+string(filepath.Separator), "")
+	prefix := regexp.MustCompile("(^|[\\s\"'`(\\[:=,])" + regexp.QuoteMeta(c.dir+string(filepath.Separator)))
+	return prefix.ReplaceAllString(text, "$1")
 }
 
 func (c *compiler) position(pos token.Pos) token.Position {

@@ -263,7 +263,7 @@ func execute(t *testing.T, args ...string) (string, error) {
 func TestUpdateLine(t *testing.T) {
 	commandFixture(t)
 	args := []string{"--rules", "rules.go,extra.go"}
-	const updated = "infergen: updated zz_infergo_gen.go (2 rules)\n"
+	const updated = "infergen: example.com/rules: updated zz_infergo_gen.go (2 rules)\n"
 	if stderr, err := execute(t, args...); err != nil || stderr != updated {
 		t.Fatalf("first run: %q, error %v", stderr, err)
 	}
@@ -285,7 +285,7 @@ func TestUpdateLine(t *testing.T) {
 	// This rewires Finish to another int fact without changing a contract.
 	write(t, "extra.go", "package rules\nfunc Finish(seed int) (value int) { return seed }\n")
 	stderr, err := execute(t, args...)
-	if err != nil || !strings.Contains(stderr, "infergen: updated zz_infergo_gen.go (1 rule)\n") {
+	if err != nil || !strings.Contains(stderr, "infergen: example.com/rules: updated zz_infergo_gen.go (1 rule)\n") {
 		t.Fatalf("rewiring run: %q, error %v", stderr, err)
 	}
 }
@@ -303,14 +303,14 @@ func Step(seed int) (middle int) { return seed + 1 }
 func Orphan(seed int) (extra int) { return seed }
 `)
 	warnings := []string{
-		`infergen: warning: rules.go:4:5: input fact "unused" is not used by any output or retained rule`,
-		"infergen: warning: rules.go:8:6: rule Orphan is not needed by any output and was left out",
+		`infergen: example.com/rules: warning: rules.go:4:5: input fact "unused" is not used by any output or retained rule`,
+		"infergen: example.com/rules: warning: rules.go:8:6: rule Orphan is not needed by any output and was left out",
 	}
 	stderr, err := execute(t, args...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range append(warnings, "infergen: updated") {
+	for _, want := range append(warnings, "infergen: example.com/rules: updated") {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("generate output %q lacks %q", stderr, want)
 		}

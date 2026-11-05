@@ -185,7 +185,7 @@ temporary file in the output directory, sets its mode to `0644`, closes it, and
 renames it over the destination. It then prints one line to standard error:
 
 ```text
-infergen: updated zz_infergo_gen.go (4 rules)
+infergen: example.com/rules: updated zz_infergo_gen.go (4 rules)
 ```
 
 If the content already matches, the CLI leaves the file alone and prints no such
@@ -212,8 +212,8 @@ A successful run can also print warnings to standard error. Warnings never chang
 the exit status, and `--check` prints them too:
 
 ```text
-infergen: warning: rules.go:12:6: rule Orphan is not needed by any output and was left out
-infergen: warning: rules.go:4:2: input fact "region" is not used by any output or retained rule
+infergen: example.com/rules: warning: rules.go:12:6: rule Orphan is not needed by any output and was left out
+infergen: example.com/rules: warning: rules.go:4:2: input fact "region" is not used by any output or retained rule
 ```
 
 An input counts as unused when no retained rule consumes it and no output reads

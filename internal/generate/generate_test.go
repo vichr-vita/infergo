@@ -720,3 +720,66 @@ func Rule(seed int) (value int) {
 		t.Fatalf("output differs by line ending:\n%s\n%s", lf.Source, crlf.Source)
 	}
 }
+
+// These packages never type-check as a whole, so a contract error would be false.
+func TestLoadFailuresKeepTheirOwnError(t *testing.T) {
+	contracts := "type Inputs struct { Seed int }\ntype Outputs struct { Seed int }\n"
+	tests := []struct {
+		name   string
+		source string
+		files  map[string]string
+		output string
+		want   string
+	}{
+		{
+			name:   "mismatched package clauses",
+			source: "package rules\n" + contracts,
+			files:  map[string]string{"other.go": "package other\n"},
+			want:   "found packages",
+		},
+		{
+			name:   "no buildable files",
+			source: "//go:build ignore\n\npackage rules\n" + contracts,
+			output: "zz_windows.go",
+			want:   "build constraints exclude all Go files",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := fixture(t, test.source)
+			if test.output != "" {
+				config.OutputFile = test.output
+			}
+			for name, source := range test.files {
+				path := filepath.Join(config.Dir, name)
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				write(t, path, source)
+			}
+			_, err := Generate(config)
+			if err == nil || !strings.HasPrefix(err.Error(), "load ruleset:") || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want load ruleset error with %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestRelativeStripsOnlyPathsInsideTheRuleset(t *testing.T) {
+	dir := filepath.Join(string(filepath.Separator), "work", "rules")
+	inside := filepath.Join(dir, "rules.go")
+	outside := filepath.Join(string(filepath.Separator), "other") + dir + string(filepath.Separator) + "inner.go"
+	tests := map[string]string{
+		inside + ":1:2: failed":         "rules.go:1:2: failed",
+		"see " + inside + "\n" + inside: "see rules.go\nrules.go",
+		`file "` + inside + `"`:         `file "rules.go"`,
+		"(" + inside + ")":              "(rules.go)",
+		outside + ":1:2: failed":        outside + ":1:2: failed",
+	}
+	c := &compiler{dir: dir}
+	for text, want := range tests {
+		if got := c.relative(text); got != want {
+			t.Errorf("relative(%q) = %q, want %q", text, got, want)
+		}
+	}
+}
