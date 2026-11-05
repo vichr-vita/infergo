@@ -6,22 +6,22 @@ a typed evaluator into the same directory. This reference covers the CLI in
 
 ## Run the generator
 
-From a ruleset directory in a module that depends on Infergo:
+Record the generator as a tool dependency once, from your module root:
 
 ```sh
-go run github.com/vichr-vita/infergo/cmd/infergen --rules rules.go
+go get -tool github.com/vichr-vita/infergo/cmd/infergen
 ```
 
-To install a binary matching the version selected by that module:
+Then, from a ruleset directory in that module:
 
 ```sh
-go install github.com/vichr-vita/infergo/cmd/infergen
+go tool infergen --rules rules.go
 ```
 
-The executable goes to `GOBIN`, or the Go binary directory under `GOPATH` when
-`GOBIN` is unset. Add that directory to your shell's `PATH` to run `infergen`
-directly. Using `go run` in a generation directive avoids a separate binary
-installation and uses the module's selected dependency version.
+`go tool` builds `infergen` at the version in your `go.mod`, so the generator
+and the runtime always match, and `go mod tidy` keeps the dependency. Use the
+same command in a `//go:generate` directive. No binary is installed into
+`GOBIN` or onto your `PATH`.
 
 For work inside the Infergo repository, run `go run ./cmd/infergen --help` from
 the root. The included bonus package uses `go run ../../cmd/infergen` in its

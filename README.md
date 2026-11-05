@@ -26,7 +26,7 @@ reflection or string-based fact lookups.
 
 ## Run the example
 
-Use Go 1.26.4 or later, as declared in [go.mod](go.mod). From a checkout:
+Use Go 1.26.0 or later, as declared in [go.mod](go.mod). From a checkout:
 
 ```sh
 go generate ./...

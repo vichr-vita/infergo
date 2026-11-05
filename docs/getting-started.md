@@ -2,7 +2,7 @@
 
 Build a ruleset that doubles a nonnegative seed, adds an offset, and returns a
 typed result. This guide assumes you can run Go commands and edit Go files. Use
-Go 1.26.4 or later.
+Go 1.26.0 or later.
 
 For an existing checkout, you can first run the [included bonus
 example](bonus-example.md). The steps below create a separate application.
@@ -15,13 +15,14 @@ In a new directory, run:
 mkdir infergo-demo
 cd infergo-demo
 go mod init example.com/infergo-demo
-go get github.com/vichr-vita/infergo/cmd/infergen
+go get -tool github.com/vichr-vita/infergo/cmd/infergen
 mkdir score
 ```
 
-The `go get` command adds the Infergo module and the dependencies needed to run
-its generator. It does not install an executable. The generation directive
-below uses the version recorded in your module.
+The `go get -tool` command adds the Infergo module to `go.mod` and records
+`infergen` as a tool dependency of your module. It does not install an
+executable. The generation directive below runs it with `go tool infergen` at
+the version recorded in your module, and `go mod tidy` keeps the entry.
 
 If you are working on a local Infergo checkout, use the [local replacement
 workflow](../CONTRIBUTING.md#use-a-local-checkout-from-another-module) instead of
@@ -34,7 +35,7 @@ Create `score/facts.go`:
 ```go
 package score
 
-//go:generate go run github.com/vichr-vita/infergo/cmd/infergen --rules rules.go
+//go:generate go tool infergen --rules rules.go
 
 type Inputs struct {
     Seed   int `fact:"seed"`
@@ -93,7 +94,8 @@ func Evaluate(ctx context.Context, input Inputs, options infergo.Options) (Outpu
 ```
 
 Do not edit the generated file. Change the rules or contracts and run generation
-again. `go build` and `go test` do not run `go generate` automatically.
+again. `go build` and `go test` do not run `go generate` automatically, so
+building before this step fails with `undefined: Evaluate`.
 
 ## Call the evaluator
 
@@ -127,8 +129,12 @@ func main() {
 Run it:
 
 ```sh
+go mod tidy
 go run .
 ```
+
+The `go mod tidy` command marks `infergo` as a direct dependency now that
+`main.go` imports it.
 
 The output is:
 
@@ -181,7 +187,10 @@ Run:
 
 ```sh
 go test -race ./...
+go generate ./score
 ```
+
+The second command confirms that generation still works after `go mod tidy`.
 
 The two rules form a chain, so increasing `MaxParallel` cannot make them run
 simultaneously. Parallelism helps only when the graph has independent work.

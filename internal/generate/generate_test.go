@@ -17,7 +17,7 @@ func fixture(t *testing.T, source string) Config {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	write(t, filepath.Join(dir, "go.mod"), fmt.Sprintf("module example.com/rules\n\ngo 1.26.4\n\nrequire %s v0.0.0\nreplace %s => %q\n", runtimePath, runtimePath, root))
+	write(t, filepath.Join(dir, "go.mod"), fmt.Sprintf("module example.com/rules\n\ngo 1.26.0\n\nrequire %s v0.0.0\nreplace %s => %q\n", runtimePath, runtimePath, root))
 	write(t, filepath.Join(dir, "rules.go"), source)
 	return Config{Dir: dir, RuleFiles: []string{"rules.go"}, Inputs: "Inputs", Outputs: "Outputs", OutputFile: "zz_infergo_gen.go"}
 }
