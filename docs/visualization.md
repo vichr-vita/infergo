@@ -33,8 +33,30 @@ Scenario and rule selections, plus the search term, appear in the URL fragment.
 Reload, Back, Forward, and **Copy link** preserve that selection. A copied link
 requires access to the same exported HTML file.
 
+## Open your own graph
+
+Run this from your ruleset directory:
+
+```sh
+infergen view --open
+```
+
+If you installed the generator as a module tool, run `go tool infergen view
+--open` instead. The command reads the same flags, `INFERGEN_` variables, and
+config file as generation, so pass `--rules` if you have no config file.
+
+`infergen view` shows topology only: rules, facts, requirements, and source. It
+never runs a rule, so the page has no scenarios or fact values. You write no Go
+program, and the command needs no generated file. The page reflects your current
+source even when the generated evaluator is stale.
+
+The page goes to `infergo-<package>.html` in the system temporary directory, and
+the command prints that path. Use `--html` to choose another file. See the
+[generator reference](generator.md#view-the-rule-graph) for every option.
+
 ## Export your own scenarios
 
+To save scenarios and their fact values, call the generated `ExportHTML`.
 Regenerate your evaluator after upgrading Infergo:
 
 ```sh
@@ -86,7 +108,8 @@ Changing the scenario in the browser displays the captured snapshot. To evaluate
 different inputs, regenerate the file. Passing `nil` cases exports the topology
 without executing rules.
 
-Rule errors remain visible in the exported scenario. The inspector distinguishes
+Rule errors remain visible in the exported scenario. A panic in a rule aborts the
+export and returns no HTML. The inspector distinguishes
 `Succeeded`, `Failed`, `Canceled`, and `Not run`. A successful `false`, zero, or
 `nil` remains a fact. An unavailable value means its producer did not publish it.
 The graph shows declared dependencies, not a timeline or conditional execution

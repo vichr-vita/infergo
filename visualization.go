@@ -101,8 +101,9 @@ var viewerTemplate string
 var viewerScript string
 
 // ExportHTML evaluates each case once and returns a self-contained HTML viewer.
-// Rule failures are saved in the viewer. Invalid IDs and export cancellation
-// return an error. No cases exports the topology without executing rules.
+// Rule errors are saved in the viewer. A panic in a rule aborts the export and
+// returns no HTML. Invalid IDs and export cancellation return an error. No cases
+// exports the topology without executing rules.
 // The file includes source and captured values; choose inputs safe to share.
 func ExportHTML[I, O any](ctx context.Context, title string, ruleset Ruleset, cases []ViewerCase[I], evaluate func(context.Context, I, Options) (O, Snapshot, error)) (string, error) {
 	seen := make(map[string]bool, len(cases))

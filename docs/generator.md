@@ -27,6 +27,9 @@ For work inside the Infergo repository, run `go run ./cmd/infergen --help` from
 the root. The included bonus package uses `go run ../../cmd/infergen` in its
 generation directive.
 
+To see the rule graph without generating anything, use
+[`infergen view`](#view-the-rule-graph).
+
 ## Flags and defaults
 
 | Flag | Environment variable | Config key | Default |
@@ -205,6 +208,41 @@ infergen: warning: rules.go:4:2: input fact "region" is not used by any output o
 An input counts as unused when no retained rule consumes it and no output reads
 it directly, so an input read only by a pruned rule gets a warning as well. See
 [Troubleshooting](troubleshooting.md).
+
+## View the rule graph
+
+`infergen view` exports the rule graph as an offline HTML page. Run it from the
+ruleset directory:
+
+```sh
+infergen view --rules rules.go --open
+```
+
+When the module declares the generator as a tool, run `go tool infergen view`.
+
+| Flag | Environment variable | Config key | Default |
+| --- | --- | --- | --- |
+| `--html` | `INFERGEN_HTML` | `html` | `infergo-<package>.html` in the system temporary directory. |
+| `--open` | `INFERGEN_OPEN` | `open` | `false` |
+
+`--rules`, `--inputs`, `--outputs`, `--out`, and `--config` work as they do for
+generation, with the same precedence. `--check` does not apply. `view` needs
+`--out` only to know which file to ignore while it loads the package.
+
+The command runs the full validation and prints the same errors and warnings as
+generation, then writes the page and prints its path to standard output. It
+writes no Go file and doesn't need a generated file, so the page reflects the
+current source even when the generated evaluator is stale. It writes through a
+temporary file and rename, and sets mode `0600` because the page contains rule
+source. The page title is the package name.
+
+`view` never runs a rule, so the page shows topology only. To include scenarios
+and fact values, use the generated `ExportHTML`, as the
+[visualization guide](visualization.md#export-your-own-scenarios) describes.
+
+`--open` starts `xdg-open` on Linux, `open` on macOS, and `rundll32
+url.dll,FileProtocolHandler` on Windows. If that fails, the command exits with an
+error naming the file, and the file stays in place.
 
 ## Keep generation reproducible
 
