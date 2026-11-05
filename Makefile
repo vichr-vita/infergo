@@ -7,7 +7,7 @@ check: check-go check-viewer
 
 # Needs only Go. Stops at the first failing step.
 check-go:
-	@unformatted=$$(gofmt -l .); \
+	@unformatted=$$(gofmt -l .) || { echo "gofmt failed"; exit 1; }; \
 	if [ -n "$$unformatted" ]; then \
 		echo "gofmt: these files need formatting (run make fmt):"; \
 		echo "$$unformatted"; \
