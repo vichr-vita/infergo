@@ -6,22 +6,22 @@ a typed evaluator into the same directory. This reference covers the CLI in
 
 ## Run the generator
 
-From a ruleset directory in a module that depends on Infergo:
+Record the generator as a tool dependency once, from your module root:
 
 ```sh
-go run github.com/vichr-vita/infergo/cmd/infergen --rules rules.go
+go get -tool github.com/vichr-vita/infergo/cmd/infergen
 ```
 
-To install a binary matching the version selected by that module:
+Then, from a ruleset directory in that module:
 
 ```sh
-go install github.com/vichr-vita/infergo/cmd/infergen
+go tool infergen --rules rules.go
 ```
 
-The executable goes to `GOBIN`, or the Go binary directory under `GOPATH` when
-`GOBIN` is unset. Add that directory to your shell's `PATH` to run `infergen`
-directly. Using `go run` in a generation directive avoids a separate binary
-installation and uses the module's selected dependency version.
+`go tool` builds `infergen` at the version in your `go.mod`, so the generator
+and the runtime always match, and `go mod tidy` keeps the dependency. Use the
+same command in a `//go:generate` directive. No binary is installed into
+`GOBIN` or onto your `PATH`.
 
 For work inside the Infergo repository, run `go run ./cmd/infergen --help` from
 the root. The included bonus package uses `go run ../../cmd/infergen` in its
@@ -45,8 +45,8 @@ spellings such as `-rules` and `-out` are not supported.
 Select multiple files using a comma-separated list or repeated flags:
 
 ```sh
-infergen --rules rates.go,awards.go
-infergen --rules rates.go --rules awards.go
+go tool infergen --rules rates.go,awards.go
+go tool infergen --rules rates.go --rules awards.go
 ```
 
 Whitespace around file names is trimmed. Blank entries and duplicate paths are
@@ -73,19 +73,19 @@ outputs: Outputs
 out: zz_infergo_gen.go
 ```
 
-Then run `infergen` with no flags. Only `rules` is required when using the default
+Then run `go tool infergen` with no flags. Only `rules` is required when using the default
 contract names and output file.
 
 To select a file elsewhere:
 
 ```sh
-infergen --config ../config/bonus.yaml
+go tool infergen --config ../config/bonus.yaml
 ```
 
 Or set the configuration path through the environment:
 
 ```sh
-INFERGEN_CONFIG=../config/bonus.yaml infergen
+INFERGEN_CONFIG=../config/bonus.yaml go tool infergen
 ```
 
 `--config` overrides `INFERGEN_CONFIG`. The config path is chosen before reading
@@ -105,7 +105,7 @@ For generator settings, the precedence is:
 Use a comma-separated value for `INFERGEN_RULES`:
 
 ```sh
-INFERGEN_RULES=rates.go,awards.go INFERGEN_OUT=generated.go infergen
+INFERGEN_RULES=rates.go,awards.go INFERGEN_OUT=generated.go go tool infergen
 ```
 
 Empty environment variables are treated as unset. An explicit `--rules` list
