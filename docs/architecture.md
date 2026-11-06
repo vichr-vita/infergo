@@ -11,7 +11,7 @@ generated Go file connects the two.
 | [plan.go](../plan.go) | Public runtime types, graph validation, and scheduling. |
 | [visualization.go](../visualization.go) | Snapshot types and offline HTML export. |
 | [viewer/](../viewer/) | SVG graph, navigation, source inspector, and embedded viewer bundle. |
-| [cmd/infergen/main.go](../cmd/infergen/main.go) | Cobra CLI, Viper configuration, and output replacement. |
+| [cmd/infergen/main.go](../cmd/infergen/main.go) | Cobra CLI, Viper configuration, output replacement, and the `view` command. |
 | [internal/generate/generate.go](../internal/generate/generate.go) | Package loading, fact/type validation, pruning, and Go emission. |
 | [ruleset/bonus/facts.go](../ruleset/bonus/facts.go) | Example contracts and generation directive. |
 | [ruleset/bonus/bonus.go](../ruleset/bonus/bonus.go) | Example rules and arithmetic helpers. |
@@ -35,8 +35,10 @@ flowchart TD
 
 The compiler first checks file paths and reads a rule file's package clause. It
 loads the package with `go/packages`, replacing the configured output through
-an overlay. That overlay contains only a package clause, so stale generated
-references do not break loading.
+an overlay. The first load's overlay contains only a package clause, so stale
+generated references do not break loading. If that load fails, a second load
+adds stubs of the generated API to the overlay, so non-test files in the package
+can call it.
 
 The compiler maps input fields to external facts, collects exported top-level
 functions from selected files, and records each ordinary result as a producer.
@@ -52,6 +54,11 @@ The emitter assigns compact rule IDs, selects import aliases that avoid package
 names, and writes direct function calls. Sorting file paths and import paths
 keeps output stable. `go/format` formats the result, and the CLI writes it through
 a temporary file before replacing the destination.
+
+The compiler builds the `infergo.Ruleset` metadata as a value, and the emitter
+prints that value as the generated `Ruleset` function. `infergen view` passes the
+same value to the runtime's `ExportHTML` with no cases, so it shows the current
+source without generated code and never executes a rule.
 
 ## Generated evaluator
 

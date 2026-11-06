@@ -27,6 +27,9 @@ For work inside the Infergo repository, run `go run ./cmd/infergen --help` from
 the root. The included bonus package uses `go run ../../cmd/infergen` in its
 generation directive.
 
+To see the rule graph without generating anything, use
+[`go tool infergen view`](#view-the-rule-graph).
+
 ## Flags and defaults
 
 | Flag | Environment variable | Config key | Default |
@@ -188,12 +191,13 @@ renames it over the destination. It then prints one line to standard error:
 infergen: example.com/rules: updated zz_infergo_gen.go (4 rules)
 ```
 
-If the content already matches, the CLI leaves the file alone and prints no such
-line, so a generation that changes nothing is quiet. CRLF line endings in the
-existing file don't count as a difference, here or with `--check`. A file the CLI
-can't read counts as different, so it gets replaced. The destination is replaced,
-so choose a file reserved for generated code. With `--check`, the CLI compares
-instead and writes nothing.
+If the content already matches, the CLI leaves the file alone, including its mode
+and modification time, and prints no such line. A generation that changes nothing
+is quiet and also works on a read-only mount. CRLF line endings in the existing
+file don't count as a difference, here or with `--check`. A file the CLI can't
+read counts as different, so it gets replaced. The destination is replaced, so
+choose a file reserved for generated code. With `--check`, the CLI compares instead
+and writes nothing.
 
 Generation or temporary-write failures leave an existing output untouched.
 Errors go to standard error with an `infergen:` prefix, and the process exits
@@ -213,6 +217,12 @@ name is close, unless the rule's signature already declares that name:
 
 ```text
 infergen: example.com/rules: rules.go:5:13: no input or rule produces fact "sed"; did you mean "seed"?
+```
+
+A failed write starts with the package path too, followed by the output file:
+
+```text
+infergen: example.com/rules: write zz_infergo_gen.go: open ./.infergen-2969863659.go: read-only file system
 ```
 
 A compiler error block has no prefix of its own, because its `# <package>` heading
@@ -242,6 +252,60 @@ infergen: example.com/rules: warning: rules.go:12:6: rule Orphan is not needed b
 An input counts as unused when no retained rule consumes it and no output reads
 it directly, so an input read only by a pruned rule gets a warning as well. See
 [Troubleshooting](troubleshooting.md).
+
+## View the rule graph
+
+`go tool infergen view` exports the rule graph as an offline HTML page. Run it
+from the ruleset directory:
+
+```sh
+go tool infergen view --rules rules.go --open
+```
+
+| Flag | Environment variable | Config key | Default |
+| --- | --- | --- | --- |
+| `--html` | `INFERGEN_HTML` | `html` | `infergo-<package>-<hash>.html` in the system temporary directory. |
+| `--open` | None. | None. | `false` |
+
+`--rules`, `--inputs`, `--outputs`, `--out`, and `--config` work as they do for
+generation, with the same precedence. `--check` does not apply. `view` needs
+`--out` only to know which file to ignore while it loads the package.
+
+The command runs the full validation and prints the same errors and warnings as
+generation, then writes the page and prints its path to standard output. It
+writes no Go file and doesn't need a generated file, so the page reflects the
+current source even when the generated evaluator is stale. The page title is the
+package name.
+
+The hash in the default file name comes from the absolute ruleset directory. Each
+directory reuses one path, and same-named packages in different directories don't
+collide.
+
+The output path must end in `.html` or `.htm`. An existing file at that path must
+be a topology page: a regular file, not a symbolic link, that holds an Infergo
+page with no saved scenarios. The command finds the page by its
+`<script id="infergo-data" type="application/json">` data block and reads the
+`cases` list inside it. A rule file, a generated file, a scenario report from
+`ExportHTML`, or any other existing file stops the command with an error that
+names the path and suggests `--html`. So does an existing file that can't be read.
+These checks apply to the default path too, so a scenario report saved there stays
+until you move it or pass `--html`.
+
+The command writes through a temporary file and rename, and always leaves the
+page at mode `0600`, because it contains rule source. That holds when the content
+is unchanged too. The file then keeps its modification time, and only its mode
+changes. Generation never changes the mode of a current file.
+
+`view` never runs a rule, so the page shows topology only. To include scenarios
+and fact values, use the generated `ExportHTML`, as the
+[visualization guide](visualization.md#export-your-own-scenarios) describes.
+
+`--open` starts `xdg-open` on Linux, `open` on macOS, and `rundll32
+url.dll,FileProtocolHandler` on Windows, and does not wait for it. If the program
+can't start, the command exits with an error naming the file, and the file stays
+in place. A failure inside the program after it starts goes undetected. `--open`
+exists only as a command-line flag, so a shared config file or environment
+variable can't open a browser.
 
 ## Keep generation reproducible
 

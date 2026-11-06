@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vichr-vita/infergo"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -43,10 +44,12 @@ type Config struct {
 // Result is a successful generation. Generate writes nothing, so the caller
 // decides what to do with Source and how to present Notes.
 type Result struct {
-	Source  []byte
-	Package string // Import path of the ruleset package.
-	Rules   int    // Rules retained in Source.
-	Notes   []Note // Warnings in source order.
+	Source      []byte
+	Ruleset     infergo.Ruleset // The value that Source's Ruleset function returns.
+	Package     string          // Import path of the ruleset package.
+	PackageName string          // Name in the ruleset's package clause.
+	Rules       int             // Rules retained in Source.
+	Notes       []Note          // Warnings in source order.
 }
 
 // Note is a diagnostic. Position is relative to Config.Dir for a file inside it.
@@ -202,11 +205,15 @@ func Generate(config Config) (Result, error) {
 		return Result{}, err
 	}
 	ids := c.retainedRules()
-	source, err := c.emit(config, ids)
+	ruleset := c.ruleset(ids)
+	source, err := c.emit(config, ids, ruleset)
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Source: source, Package: c.pkg.PkgPath, Rules: len(ids), Notes: c.unusedDeclarations(ids)}, nil
+	return Result{
+		Source: source, Ruleset: ruleset, Package: c.pkg.PkgPath, PackageName: c.pkg.Name,
+		Rules: len(ids), Notes: c.unusedDeclarations(ids),
+	}, nil
 }
 
 // stripCarriageReturns keeps embedded text independent of the file's line
@@ -702,7 +709,49 @@ func nameAllocator(scope *types.Scope) func(string) string {
 	}
 }
 
-func (c *compiler) emit(config Config, ids []int) ([]byte, error) {
+// externalFacts returns the input facts in name order.
+func (c *compiler) externalFacts() []fact {
+	var external []fact
+	for _, name := range sortedFactNames(c.facts) {
+		if f := c.facts[name]; f.producer < 0 {
+			external = append(external, f)
+		}
+	}
+	return external
+}
+
+// factSpecs never returns nil, because generated composite literals are empty
+// rather than nil and the viewer's JSON distinguishes the two.
+func factSpecs(facts []fact) []infergo.FactSpec {
+	specs := make([]infergo.FactSpec, len(facts))
+	for i, f := range facts {
+		specs[i] = infergo.FactSpec{
+			Name: f.name,
+			Type: types.TypeString(f.typ, func(pkg *types.Package) string { return pkg.Name() }),
+		}
+	}
+	return specs
+}
+
+// ruleset builds the metadata for the retained rules. emit prints this value, so
+// the generated Ruleset function and in-process callers cannot disagree.
+func (c *compiler) ruleset(ids []int) infergo.Ruleset {
+	requested := make([]fact, len(c.outputs))
+	for i, output := range c.outputs {
+		requested[i] = output.fact
+	}
+	rules := make([]infergo.RuleSpec, len(ids))
+	for i, id := range ids {
+		r := c.rules[id]
+		rules[i] = infergo.RuleSpec{
+			ID: r.name, Requirement: r.requirement, Source: r.source,
+			Inputs: factSpecs(r.inputs), Outputs: factSpecs(r.outputs),
+		}
+	}
+	return infergo.Ruleset{Inputs: factSpecs(c.externalFacts()), Outputs: factSpecs(requested), Rules: rules}
+}
+
+func (c *compiler) emit(config Config, ids []int, ruleset infergo.Ruleset) ([]byte, error) {
 	indices := make(map[int]int, len(ids))
 	for index, id := range ids {
 		indices[id] = index
@@ -761,36 +810,24 @@ func (c *compiler) emit(config Config, ids []int) ([]byte, error) {
 		fmt.Fprintln(&body, "}},")
 	}
 	fmt.Fprintln(&body, "})\nif err != nil { panic(err) }\nreturn plan\n}()")
-	// Metadata is emitted from the same retained rules and fact contracts as execution.
-	emitFacts := func(specs []fact) {
+	emitFacts := func(specs []infergo.FactSpec) {
 		fmt.Fprintf(&body, "[]%s.FactSpec{", runtimeAlias)
-		for _, f := range specs {
-			fmt.Fprintf(&body, "{Name: %q, Type: %q},", f.name, types.TypeString(f.typ, func(pkg *types.Package) string { return pkg.Name() }))
+		for _, spec := range specs {
+			fmt.Fprintf(&body, "{Name: %q, Type: %q},", spec.Name, spec.Type)
 		}
 		fmt.Fprint(&body, "}")
 	}
 	fmt.Fprintln(&body, "\n// Ruleset returns fresh metadata for the generated evaluator.")
 	fmt.Fprintf(&body, "func Ruleset() %s.Ruleset { return %s.Ruleset{Inputs:", runtimeAlias, runtimeAlias)
-	var external []fact
-	for _, name := range sortedFactNames(c.facts) {
-		if f := c.facts[name]; f.producer < 0 {
-			external = append(external, f)
-		}
-	}
-	emitFacts(external)
+	emitFacts(ruleset.Inputs)
 	fmt.Fprint(&body, ", Outputs:")
-	var requested []fact
-	for _, output := range c.outputs {
-		requested = append(requested, output.fact)
-	}
-	emitFacts(requested)
+	emitFacts(ruleset.Outputs)
 	fmt.Fprintf(&body, ", Rules: []%s.RuleSpec{", runtimeAlias)
-	for _, id := range ids {
-		r := c.rules[id]
-		fmt.Fprintf(&body, "{ID: %q, Requirement: %q, Source: %q, Inputs:", r.name, r.requirement, r.source)
-		emitFacts(r.inputs)
+	for _, r := range ruleset.Rules {
+		fmt.Fprintf(&body, "{ID: %q, Requirement: %q, Source: %q, Inputs:", r.ID, r.Requirement, r.Source)
+		emitFacts(r.Inputs)
 		fmt.Fprint(&body, ", Outputs:")
-		emitFacts(r.outputs)
+		emitFacts(r.Outputs)
 		fmt.Fprint(&body, "},")
 	}
 	fmt.Fprintln(&body, "}} }")
@@ -802,7 +839,7 @@ func (c *compiler) emit(config Config, ids []int) ([]byte, error) {
 	fmt.Fprintln(&body, "\n// EvaluateTrace captures diagnostic values without changing result or error semantics.")
 	fmt.Fprintf(&body, "func EvaluateTrace(%s %s.Context, %s %s, %s %s.Options) (%s, %s.Snapshot, error) {\n", ctx, contextAlias, input, config.Inputs, options, runtimeAlias, config.Outputs, runtimeAlias)
 	fmt.Fprintf(&body, "%s := %s.Snapshot{Inputs: map[string]string{", snapshot, runtimeAlias)
-	for _, f := range external {
+	for _, f := range c.externalFacts() {
 		fmt.Fprintf(&body, "%q: %s.FormatValue(%s.%s),", f.name, runtimeAlias, input, f.field)
 	}
 	fmt.Fprintf(&body, "}, Trace: []%s.RuleTrace{", runtimeAlias)
