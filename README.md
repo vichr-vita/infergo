@@ -7,8 +7,17 @@ rules sequentially or with bounded concurrency.
 
 Use it when a calculation has several dependent steps that you want to write and
 test as ordinary Go functions. Graph validation happens during generation.
-Evaluations use typed storage and direct function calls, with no runtime
-reflection or string-based fact lookups.
+`Evaluate` uses typed storage and direct function calls, with no runtime
+reflection or string-based fact lookups. The diagnostic `EvaluateTrace` also
+formats each value as a string.
+
+Infergo is pre-1.0, so its API and generated code can change between releases.
+Regenerate your evaluators after every upgrade.
+
+> These docs track `main`. The latest release, v0.1.1, lacks `infergen view`,
+> `--check`, `PanicError`, and more. See the [version
+> note](docs/generator.md#run-the-generator) for the list and how to install
+> `main`.
 
 ## Documentation
 
@@ -26,15 +35,19 @@ reflection or string-based fact lookups.
 
 ## Run the example
 
-Use Go 1.26.0 or later, as declared in [go.mod](go.mod). From a checkout:
+Use Go 1.26.0 or later, as declared in [go.mod](go.mod). Clone the repository
+and run the example:
 
 ```sh
+git clone https://github.com/vichr-vita/infergo.git
+cd infergo
 go generate ./...
 go test -race ./...
 go test ./ruleset/bonus -run '^ExampleEvaluate$' -v
 ```
 
-The executable example computes a bonus of `1049000` cents and a payment
+The `-race` flag needs cgo and a C toolchain, so leave it out if you do not have
+them. The executable example computes a bonus of `1049000` cents and a payment
 reference of `BONUS-E01-1049000`. Its inputs and assertions are in
 [ExampleEvaluate](ruleset/bonus/bonus_test.go).
 
@@ -43,22 +56,22 @@ options:
 
 ```go
 result, err := bonus.Evaluate(ctx, bonus.Inputs{
-    EmployeeID:          "E01",
-    Active:              true,
-    TenureMonths:        48,
-    PerformanceScore:    94,
-    SalaryCents:         8_000_000,
-    Role:                bonus.Specialist,
-    Department:          bonus.Engineering,
-    TrainingComplete:    true,
-    CompanyTargetMet:    true,
-    EmployeeBudgetCents: 1_200_000,
-    ManagerApproved:     true,
-    FinanceApproved:     true,
-    CriticalSkill:       true,
+	EmployeeID:          "E01",
+	Active:              true,
+	TenureMonths:        48,
+	PerformanceScore:    94,
+	SalaryCents:         8_000_000,
+	Role:                bonus.Specialist,
+	Department:          bonus.Engineering,
+	TrainingComplete:    true,
+	CompanyTargetMet:    true,
+	EmployeeBudgetCents: 1_200_000,
+	ManagerApproved:     true,
+	FinanceApproved:     true,
+	CriticalSkill:       true,
 }, infergo.Options{MaxParallel: 4})
 if err != nil {
-    return err
+	return err
 }
 fmt.Println(result.FinalBonusCents) // 1049000
 ```
@@ -75,10 +88,10 @@ facts, and every occurrence of a fact must have an identical Go type:
 
 ```go
 func BaseBonus(salaryCents uint64, roleRateBps uint64) (
-    baseBonusCents uint64,
-    err error,
+	baseBonusCents uint64,
+	err error,
 ) {
-    return scaled(salaryCents, roleRateBps)
+	return scaled(salaryCents, roleRateBps)
 }
 ```
 
@@ -93,8 +106,11 @@ supported signatures, mappings, and package layout.
 
 ## Configure the generator
 
-Run `go tool infergen` in the ruleset directory. Supply rule files with `--rules`, an
-`infergen.yaml`, `infergen.toml`, or `infergen.json` file, or `INFERGEN_RULES`.
+In your own module, record `infergen` as a tool dependency and run
+`go tool infergen` in the ruleset directory. This repository has no tool
+dependency, so use `go run ../../cmd/infergen` in `ruleset/bonus` instead. Supply
+rule files with `--rules`, an `infergen.yaml`, `infergen.toml`, or `infergen.json`
+file, or `INFERGEN_RULES`.
 Explicit flags override environment variables, which override configuration
 files and defaults. Flags use two dashes, such as `--rules`.
 

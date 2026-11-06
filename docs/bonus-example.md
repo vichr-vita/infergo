@@ -20,7 +20,8 @@ go test ./ruleset/bonus -run '^ExampleEvaluate$' -v
 go test -race ./ruleset/bonus
 ```
 
-The [README](../README.md#run-the-example) shows the input literal for the
+The `-race` flag needs cgo and a C toolchain. The
+[README](../README.md#run-the-example) shows the input literal for the
 baseline scenario. The executable example verifies a final bonus of `1049000`
 and payment reference `BONUS-E01-1049000`.
 

@@ -13,11 +13,11 @@ result. Multiple rules may consume the same fact.
 
 ```go
 func Split(seed int) (left int, right int) {
-    return seed, seed + 1
+	return seed, seed + 1
 }
 
 func Join(left int, right int) (total int) {
-    return left + right
+	return left + right
 }
 ```
 
@@ -50,11 +50,10 @@ Rule files must be non-test `.go` files in the current ruleset directory and mus
 participate in the active build. The output file must be separate. Select every
 file containing a producer you need. Files are not selected recursively.
 
-Non-test source in the ruleset package can call `Evaluate` and the rest of the
-generated API. Generation hides its configured output file while loading the
-package and declares stubs with the same signatures. Keep that source independent
-of `_infergoPlan`, which has no stub. There is one generated evaluator per
-package, and rules cannot live in the Infergo runtime package itself.
+Non-test source in the ruleset package can call the generated API, as [File
+paths and package loading](generator.md#file-paths-and-package-loading) explains.
+There is one generated evaluator per package, and rules cannot live in the
+Infergo runtime package itself.
 
 ## Supported signatures
 
@@ -63,7 +62,7 @@ package, and rules cannot live in the Infergo runtime package itself.
 | Named parameter, such as `seed int` | Consumes that fact. |
 | Named ordinary result, such as `total int` | Produces that fact. |
 | Several named results | Produces all of them on success. |
-| No fact parameters | A root rule, ready at evaluation start. |
+| No fact parameters, or only external input facts | A root rule, ready at evaluation start. |
 | First parameter of type `context.Context` | Receives the execution context. |
 | Last result of the built-in `error` type | Controls success or failure. |
 | Unnamed or blank ordinary parameter/result | Rejected. |
@@ -102,12 +101,12 @@ non-embedded.
 
 ```go
 type Inputs struct {
-    Seed int `fact:"seed"`
+	Seed int `fact:"seed"`
 }
 
 type Outputs struct {
-    Original int `fact:"seed"`
-    Total    int `fact:"total"`
+	Original int `fact:"seed"`
+	Total    int `fact:"total"`
 }
 ```
 
@@ -153,14 +152,14 @@ without a value:
 
 ```go
 func Positive(total int) (positive *int) {
-    if total > 0 {
-        return &total
-    }
-    return nil
+	if total > 0 {
+		return &total
+	}
+	return nil
 }
 
 func HasPositive(positive *int) (hasPositive bool) {
-    return positive != nil
+	return positive != nil
 }
 ```
 
@@ -174,10 +173,10 @@ A context-aware rule can check cancellation before expensive work:
 
 ```go
 func CheckedDouble(ctx context.Context, seed int) (doubled int, err error) {
-    if err := ctx.Err(); err != nil {
-        return 0, err
-    }
-    return seed * 2, nil
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return seed * 2, nil
 }
 ```
 

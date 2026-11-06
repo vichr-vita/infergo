@@ -16,6 +16,9 @@ generated Go file connects the two.
 | [ruleset/bonus/facts.go](../ruleset/bonus/facts.go) | Example contracts and generation directive. |
 | [ruleset/bonus/bonus.go](../ruleset/bonus/bonus.go) | Example rules and arithmetic helpers. |
 | [ruleset/bonus/zz_infergo_gen.go](../ruleset/bonus/zz_infergo_gen.go) | Committed generated example evaluator. |
+| [examples/bonus-viewer/](../examples/bonus-viewer/) | Command that exports the bonus rules and saved scenarios to a viewer page. |
+| [tests/ui/](../tests/ui/) | Playwright tests and fixtures for the viewer. |
+| [Makefile](../Makefile) | The checks that contributors and CI run. |
 
 The runtime imports only standard-library packages. Generator dependencies stay
 in the CLI and internal compiler. Applications importing a generated ruleset do
@@ -76,6 +79,9 @@ When `Run` succeeds, the evaluator assembles the output contract from input or
 derived facts. When it fails, the evaluator returns a zero output struct. It
 does not expose intermediate storage.
 
+`Evaluate` uses neither a runtime fact map nor reflection. Fact names and types
+have already become Go field accesses and function arguments by this point.
+
 Generated `EvaluateTrace` uses the same evaluator with a separate diagnostic
 snapshot. Successful callbacks copy printable output values into their own trace
 entries, and each callback records its outcome before returning. After the
@@ -83,9 +89,6 @@ scheduler waits for started work, the snapshot is complete. A failed evaluation
 still returns a zero output contract. `Ruleset` embeds fresh metadata for the
 retained rules, including source and comments. The
 [visualization guide](visualization.md) describes the export and snapshot APIs.
-
-The code uses neither a runtime fact map nor reflection. Fact names and types
-have already become Go field accesses and function arguments by this point.
 
 ## Scheduler
 

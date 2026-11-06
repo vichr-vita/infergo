@@ -14,6 +14,7 @@ are diagnostic fragments; file names, locations, and fact names vary by ruleset.
 
 | Message or symptom | Cause and correction |
 | --- | --- |
+| `no such tool "infergen"` | In your module, run `go get -tool github.com/vichr-vita/infergo/cmd/infergen`. The Infergo repository has no tool dependency, so use `go run ./cmd/infergen` from its root or `go run ../../cmd/infergen` from `ruleset/bonus`. |
 | `rule files are required` | Supply `--rules`, `INFERGEN_RULES`, or a `rules` entry in a configuration file. There is no default rule file. |
 | `rule file names must not be empty` | Remove blank entries, including a trailing comma or whitespace-only file name. |
 | `unknown flag` or `unknown shorthand flag` | Use the flags listed by `--help`. Long flags require two dashes. |
@@ -21,7 +22,7 @@ are diagnostic fragments; file names, locations, and fact names vary by ruleset.
 | `read config:` | Check the selected path, file permissions, extension, and syntax. An explicit config file must exist. |
 | `decode config:` | Check value types. Use a list of file names for `rules` and strings for the other settings. |
 | `read ruleset package:` | The first rule file could not be read or its package clause could not be parsed. Check the path and Go syntax. |
-| `load ruleset:` | Fix the reported Go package or dependency errors. Source may refer to the generated API, because the generator hides the configured generated file and declares stubs in its place. Everything else must type-check. |
+| `load ruleset:` | Fix the reported Go package or dependency errors. Source may call the generated API through [stubs](generator.md#file-paths-and-package-loading), and those calls must match the generated signatures. Everything else must type-check. A parameter and a result cannot share a name, so `redeclared in this block` means a rule tried to consume its own output. |
 | `which this module cannot load` | Non-test source uses the generated API, and the module can't load the Infergo runtime that the generated code imports. Run `go get github.com/vichr-vita/infergo`, then `go mod vendor` if the module has a vendor directory. Any `undefined: Evaluate` lines that follow come from the same cause. |
 | `missing or excluded by build constraints` | Select an existing file in the active build and check build tags, `GOOS`, `GOARCH`, and `GOFLAGS`. |
 | `must be a non-test .go file` | Keep rules and output in the current ruleset directory. Avoid `_test.go` paths and do not select the output as a rule file. |
@@ -40,8 +41,9 @@ are diagnostic fragments; file names, locations, and fact names vary by ruleset.
 | `no input or rule produces fact` | Check spelling and case, input tags, and selection of the producer's file. A trailing `did you mean` names the closest known fact, if one is close. |
 | `has multiple producers` | Keep one source for the fact. An external input also counts as a producer. |
 | `has type ..., expected ...` | Use identical types at the producer, consumers, and contract fields. Defined types differ from their underlying types. |
-| `rule dependency cycle` | Break the reported producer cycle. A rule cannot consume its own output fact. |
+| `rule dependency cycle` | Break the reported producer cycle. |
 | `too many errors` | The run stopped reporting after 10 errors. Fix those and run the generator again. |
+| `read generated file:` | `--check` could not read the existing output file. Fix its permissions and run again. This message has no package prefix. |
 | `is reserved for generated code` | Rename the conflicting declaration. The generator reserves `Evaluate`, `EvaluateTrace`, `Ruleset`, `ViewerCase`, `ExportHTML`, and `_infergoPlan`. Remove an obsolete generated file only after checking it contains no hand-written code. |
 | `rules must be in a separate package` | Move rules out of the `github.com/vichr-vita/infergo` runtime package. |
 
@@ -78,11 +80,6 @@ The generator ignores only the output path configured for this invocation. If
 you changed `--out`, an old generated file may still define `Evaluate` and
 `_infergoPlan`. Review and remove the obsolete generated file, then regenerate.
 
-A non-test file in the ruleset can call `Evaluate` and the rest of the generated
-API. The generator hides the generated file while loading and declares stubs with
-the same signatures in its place. A call that doesn't match those signatures
-fails as `load ruleset:`, as it would in `go build`.
-
 For missing module checksum entries when running the generator, record it as a
 tool dependency of your application's module with
 `go get -tool github.com/vichr-vita/infergo/cmd/infergen` and run it with
@@ -106,6 +103,23 @@ The generator validates every exported top-level function in selected rule
 files before pruning unused branches. Fix the declaration, make it an
 unexported helper, or move it into a file outside `--rules`. Selecting a smaller
 output contract does not hide invalid selected rules.
+
+## Viewing fails
+
+`go tool infergen view` reports the same errors as generation, plus the following
+messages. Those about an output path end with `choose another path with --html`.
+See [View the rule graph](generator.md#view-the-rule-graph) for the rules behind
+them.
+
+| Message or symptom | Cause and correction |
+| --- | --- |
+| `does not end in .html or .htm` | Pass an `--html` path with one of those extensions. |
+| `which is not an Infergo page` | `view` did not write the file at that path, and it will not replace it. Pass another `--html` path. |
+| `which holds saved scenarios` | The file is a scenario report from `ExportHTML`, which `view` cannot recreate. Move it or pass another `--html` path. |
+| `which is not a regular file` | The path is a symbolic link, a directory, or another special file. Pass another `--html` path. |
+| `cannot check existing file` | The command could not inspect the existing file. Fix its permissions or pass another `--html` path. |
+| `open <path>:` | `--open` could not start the platform's opener, such as `xdg-open`. The page stays at the printed path, so open it yourself. |
+| `viewer case IDs must be unique and nonempty` | This one comes from `ExportHTML`. Give every `ViewerCase` a distinct, nonblank `ID`. |
 
 ## A rule does not run
 
@@ -138,6 +152,17 @@ fact. A stale evaluator can also leave outputs unexpectedly empty, because it ke
 the wiring from its last generation. `INFERGEN_CHECK=true go generate ./...` shows
 whether that is the cause. With concurrent failures, the observed rule name can
 vary between runs.
+
+## NewPlan rejects a graph
+
+These errors come from calling `infergo.NewPlan` directly, and each starts with
+`infergo:`. See [Rule and NewPlan](runtime.md#rule-and-newplan).
+
+| Message | Cause and correction |
+| --- | --- |
+| `must have a unique, nonempty name` | Give every `Rule` its own name. The message gives the rule's slice index. |
+| `has invalid dependency` | Use only slice indices of the descriptor list in `DependsOn`. |
+| `rule graph contains a cycle` | Remove the cycle, including any rule that depends on itself. |
 
 ## Cancellation does not return promptly
 

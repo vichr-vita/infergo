@@ -12,6 +12,12 @@ Record the generator as a tool dependency once, from your module root:
 go get -tool github.com/vichr-vita/infergo/cmd/infergen
 ```
 
+> These docs track `main`. The latest release, v0.1.1, lacks the `view` command,
+> `--check`, `PanicError`, warnings, `did you mean` suggestions, reports of
+> several errors in one run, the `updated` line, and stubs of the generated API.
+> To use them, install `main` instead:
+> `go get -tool github.com/vichr-vita/infergo/cmd/infergen@main`.
+
 Then, from a ruleset directory in that module:
 
 ```sh
@@ -134,11 +140,12 @@ is an error. There is no dedicated `--tags` option; use the Go build environment
 such as `GOFLAGS`, when needed.
 
 The loader replaces the configured generated file with a package-only source
-file, so it can regenerate absent or stale output. If the package doesn't
+file, so it can regenerate absent or stale output. If the package does not
 type-check that way, the loader tries again with stubs of `Evaluate`,
 `EvaluateTrace`, `Ruleset`, `ViewerCase`, and `ExportHTML` in that file. This lets
 non-test files in the ruleset package call the generated API. They must call it
 correctly, because the stubs have the same signatures as the generated code.
+`_infergoPlan` has no stub, so keep that source independent of it.
 
 ## Generated declarations
 
@@ -194,10 +201,10 @@ infergen: example.com/rules: updated zz_infergo_gen.go (4 rules)
 If the content already matches, the CLI leaves the file alone, including its mode
 and modification time, and prints no such line. A generation that changes nothing
 is quiet and also works on a read-only mount. CRLF line endings in the existing
-file don't count as a difference, here or with `--check`. A file the CLI can't
+file do not count as a difference, here or with `--check`. A file the CLI cannot
 read counts as different, so it gets replaced. The destination is replaced, so
 choose a file reserved for generated code. With `--check`, the CLI compares instead
-and writes nothing.
+and writes nothing, and an unreadable file fails with `read generated file:`.
 
 Generation or temporary-write failures leave an existing output untouched.
 Errors go to standard error with an `infergen:` prefix, and the process exits
@@ -273,9 +280,9 @@ generation, with the same precedence. `--check` does not apply. `view` needs
 
 The command runs the full validation and prints the same errors and warnings as
 generation, then writes the page and prints its path to standard output. It
-writes no Go file and doesn't need a generated file, so the page reflects the
-current source even when the generated evaluator is stale. The page title is the
-package name.
+writes no Go file and does not need a generated file, so the page reflects the
+current source even when the generated evaluator is stale. The page heading and
+the browser tab show the package name.
 
 The hash in the default file name comes from the absolute ruleset directory. Each
 directory reuses one path, and same-named packages in different directories don't
@@ -333,6 +340,10 @@ generator. Then run this in CI:
 ```sh
 INFERGEN_CHECK=true go generate ./...
 ```
+
+> Do not use this gate on v0.1.1. That release ignores `INFERGEN_CHECK`, rewrites
+> stale files, and exits 0, so CI passes without checking anything. Install
+> `@main` as the [version note](#run-the-generator) describes.
 
 The environment variable reaches every `infergen` process that `go generate`
 starts, so each package keeps its directive unchanged. `--check` does the same

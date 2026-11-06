@@ -54,20 +54,21 @@ npx playwright install chromium webkit
 make test-ui
 ```
 
-The CI workflow runs `make check` and `make test-ui`, which test the
-HTML viewer in Chromium and WebKit, including narrow mobile widths. Follow the
-[viewer development instructions](docs/visualization.md#maintain-the-viewer)
-when changing the viewer. A docs-only change
-should also check relative links and compile any new complete Go examples.
+The CI workflow runs `make check` and `make test-ui`, which test the HTML viewer
+in Chromium and WebKit, including narrow mobile widths. Follow the [viewer
+development instructions](docs/visualization.md#maintain-the-viewer) when changing
+the viewer. A docs-only change should also check relative links, keep Go blocks
+gofmt clean, and compile any new complete Go examples.
 
 ## Choose the relevant tests
 
 | Area | Command | Coverage |
 | --- | --- | --- |
-| Runtime | `go test -race .` | Dependency order, bounded concurrency, readiness, cancellation, failure cleanup, concurrent evaluations, and invalid plans. |
-| Generator | `go test ./internal/generate` | Generated-code compilation and execution, pruning, nil facts, imported and defined types, regeneration, stale contract guards, and rejected declarations. |
-| CLI | `go test ./cmd/infergen` | Flags, config discovery, precedence, help, check mode, and preserving existing output on errors. |
+| Runtime | `go test -race .` | Dependency order, bounded concurrency, readiness, cancellation, failure cleanup, rule panics, `Goexit`, concurrent evaluations, invalid plans, snapshot formatting, and HTML export. |
+| Generator | `go test ./internal/generate` | Generated-code compilation and execution, pruning, nil facts, imported and defined types, regeneration, stale contract guards, rejected declarations, multi-error reports, suggestions, and warnings. |
+| CLI | `go test ./cmd/infergen` | Flags, config discovery, precedence, help, check mode, `view`, and preserving existing output on errors. |
 | Bonus policy | `go test -race ./ruleset/bonus` | Fixed scenarios, arithmetic, boundaries, invalid values, and the runnable example. |
+| Viewer | `make test-ui` | Browser behavior in `tests/ui/viewer.spec.cjs`, including saved scenarios, source inspection, search, zoom, and mobile layouts. |
 
 Generator tests create temporary Go modules and compile the emitted source. The
 main evaluator fixture runs its generated tests with `-race` as well. Keep tests
