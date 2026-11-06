@@ -26,7 +26,7 @@ reflection or string-based fact lookups.
 
 ## Run the example
 
-Use Go 1.26.4 or later, as declared in [go.mod](go.mod). From a checkout:
+Use Go 1.26.0 or later, as declared in [go.mod](go.mod). From a checkout:
 
 ```sh
 go generate ./...
@@ -93,7 +93,7 @@ supported signatures, mappings, and package layout.
 
 ## Configure the generator
 
-Run `infergen` in the ruleset directory. Supply rule files with `--rules`, an
+Run `go tool infergen` in the ruleset directory. Supply rule files with `--rules`, an
 `infergen.yaml`, `infergen.toml`, or `infergen.json` file, or `INFERGEN_RULES`.
 Explicit flags override environment variables, which override configuration
 files and defaults. Flags use two dashes, such as `--rules`.
@@ -114,7 +114,8 @@ Inputs and referenced data must remain immutable throughout evaluation.
 
 Read the [runtime reference](docs/runtime.md) before using parallel execution or
 rules that perform I/O. The current implementation has no dynamic branches,
-retries, fact updates, incremental reevaluation, or panic recovery.
+retries, fact updates, or incremental reevaluation, and a rule panic stays a
+panic on the goroutine that called `Evaluate`.
 
 The runtime in [plan.go](plan.go) imports only the standard library. Package
 loading and type inspection belong to the generator.
