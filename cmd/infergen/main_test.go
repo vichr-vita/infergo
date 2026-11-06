@@ -439,6 +439,19 @@ func TestWriteFileReportsFailedReplacement(t *testing.T) {
 	}
 }
 
+// go generate ./... mixes packages, so a write failure has to name its own.
+func TestWriteFailureNamesPackage(t *testing.T) {
+	commandFixture(t)
+	// A directory cannot be renamed over.
+	if err := os.Mkdir("zz_infergo_gen.go", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := execute(t, "--rules", "rules.go,extra.go")
+	if err == nil || !strings.HasPrefix(err.Error(), "example.com/rules: write zz_infergo_gen.go: ") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestCommandHelpSkipsConfig(t *testing.T) {
 	commandFixture(t)
 	write(t, "infergen.yaml", "rules: [")
@@ -454,8 +467,27 @@ func TestCommandHelpSkipsConfig(t *testing.T) {
 			t.Fatalf("help does not include %s:\n%s", flag, &output)
 		}
 	}
-	if strings.Contains(output.String(), "completion") {
-		t.Fatalf("help lists a default subcommand:\n%s", &output)
+	for _, listed := range []string{"completion", "Help about any command"} {
+		if strings.Contains(output.String(), listed) {
+			t.Fatalf("help lists a default subcommand:\n%s", &output)
+		}
+	}
+}
+
+func TestDefaultSubcommands(t *testing.T) {
+	commandFixture(t)
+	var output bytes.Buffer
+	command := newCommand()
+	command.SetOut(&output)
+	command.SetArgs([]string{"completion", "bash"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "bash completion") {
+		t.Fatalf("completion printed no script:\n%s", &output)
+	}
+	if _, err := execute(t, "help"); err == nil || !strings.Contains(err.Error(), `unknown command "help"`) {
+		t.Fatalf("help: error = %v", err)
 	}
 }
 
@@ -590,12 +622,15 @@ func TestViewUsesSharedConfiguration(t *testing.T) {
 
 func TestViewOpen(t *testing.T) {
 	commandFixture(t)
-	var opened string
-	open := func(path string) error {
-		opened = path
+	var stdout bytes.Buffer
+	var opened, printed string
+	command := newCommandWithOpener(func(path string) error {
+		opened, printed = path, stdout.String()
 		return nil
-	}
-	if _, _, err := view(t, open, "--rules", "rules.go,extra.go", "--html", "graph.html", "--open"); err != nil {
+	})
+	command.SetOut(&stdout)
+	command.SetArgs([]string{"view", "--rules", "rules.go,extra.go", "--html", "graph.html", "--open"})
+	if err := command.Execute(); err != nil {
 		t.Fatal(err)
 	}
 	want, err := filepath.Abs("graph.html")
@@ -604,6 +639,10 @@ func TestViewOpen(t *testing.T) {
 	}
 	if opened != want {
 		t.Fatalf("opened %q, want %q", opened, want)
+	}
+	// A slow opener must not delay the path, so it prints first.
+	if printed != "graph.html\n" {
+		t.Fatalf("stdout before opening = %q", printed)
 	}
 }
 
@@ -620,17 +659,37 @@ func TestDefaultHTMLPathIsPerDirectory(t *testing.T) {
 	}
 }
 
+// scenarioReport returns a real ExportHTML page with one saved case. Its label
+// is the text that ends a page with no cases, which must not make the list count
+// as empty.
+func scenarioReport(t *testing.T) string {
+	t.Helper()
+	html, err := bonus.ExportHTML(context.Background(), "bonus", []bonus.ViewerCase{{ID: "review", Label: `"cases":[]}</script>`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return html
+}
+
 func TestViewProtectsExistingFiles(t *testing.T) {
 	args := []string{"--rules", "rules.go,extra.go"}
+	const foreign = "not an Infergo page"
 	tests := []struct {
-		name string
-		path string
-		want string
+		name    string
+		path    string
+		content string
+		want    string
 	}{
 		{name: "rule file", path: "rules.go", want: "does not end in .html or .htm"},
 		{name: "generated file", path: "zz_infergo_gen.go", want: "does not end in .html or .htm"},
-		{name: "foreign page", path: "page.html", want: "not an Infergo page"},
-		{name: "foreign page with short extension", path: "PAGE.HTM", want: "not an Infergo page"},
+		{name: "foreign page", path: "page.html", content: "<html>notes</html>\n", want: foreign},
+		{name: "foreign page with short extension", path: "PAGE.HTM", content: "<html>notes</html>\n", want: foreign},
+		{name: "page mentioning the data id", path: "page.html", content: `<html>notes id="infergo-data" in prose</html>`, want: foreign},
+		{name: "page mentioning the data tag", path: "page.html", content: `<html>` + pageDataOpening + `</html>`, want: foreign},
+		{name: "data script without cases", path: "page.html", content: pageDataOpening + `{"title":"notes"}</script>`, want: foreign},
+		{name: "data script that is not JSON", path: "page.html", content: pageDataOpening + `notes</script>`, want: foreign},
+		{name: "scenario report", path: "report.html", content: scenarioReport(t), want: "holds saved scenarios"},
+		{name: "scenarios in another field order", path: "report.html", content: pageDataOpening + `{"cases":[{"id":"review"}],"title":"notes"}</script>`, want: "holds saved scenarios"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -638,8 +697,8 @@ func TestViewProtectsExistingFiles(t *testing.T) {
 			if _, err := execute(t, args...); err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(strings.ToLower(test.path), "page") {
-				write(t, test.path, "<html>notes</html>\n")
+			if test.content != "" {
+				write(t, test.path, test.content)
 			}
 			before, err := os.ReadFile(test.path)
 			if err != nil {
@@ -665,19 +724,80 @@ func TestViewChecksDefaultPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := defaultHTMLPath("rules", directory)
-	write(t, path, "<html>notes</html>\n")
 	args := []string{"--rules", "rules.go,extra.go"}
-	if _, _, err := view(t, refuseOpen(t), args...); err == nil || !strings.Contains(err.Error(), "not an Infergo page") {
-		t.Fatalf("foreign file: error = %v", err)
+	files := []struct {
+		name, content, want string
+	}{
+		{name: "foreign file", content: "<html>notes</html>\n", want: "not an Infergo page"},
+		{name: "scenario report", content: scenarioReport(t), want: "holds saved scenarios"},
 	}
-	// A directory can't be read as a file, whatever user runs the test.
+	for _, file := range files {
+		write(t, path, file.content)
+		_, _, err := view(t, refuseOpen(t), args...)
+		if err == nil || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), file.want) || !strings.Contains(err.Error(), "--html") {
+			t.Fatalf("%s: error = %v", file.name, err)
+		}
+		if mustRead(t, path) != file.content {
+			t.Fatalf("%s: view changed the file", file.name)
+		}
+	}
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := view(t, refuseOpen(t), args...); err == nil || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "--html") {
+	if _, _, err := view(t, refuseOpen(t), args...); err == nil || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("directory: error = %v", err)
+	}
+}
+
+// The rename would replace a link and leave its target stale.
+func TestViewRefusesSymbolicLinks(t *testing.T) {
+	for _, target := range []string{"missing.html", "page.html"} {
+		t.Run(target, func(t *testing.T) {
+			commandFixture(t)
+			args := []string{"--rules", "rules.go,extra.go", "--html"}
+			if _, _, err := view(t, refuseOpen(t), append(args, "page.html")...); err != nil {
+				t.Fatal(err)
+			}
+			page := mustRead(t, "page.html")
+			if err := os.Symlink(target, "graph.html"); err != nil {
+				t.Fatal(err)
+			}
+			_, _, err := view(t, refuseOpen(t), append(args, "graph.html")...)
+			if err == nil || !strings.Contains(err.Error(), "graph.html") || !strings.Contains(err.Error(), "not a regular file") || !strings.Contains(err.Error(), "--html") {
+				t.Fatalf("error = %v", err)
+			}
+			if link, err := os.Readlink("graph.html"); err != nil || link != target {
+				t.Fatalf("link = %q, error %v", link, err)
+			}
+			if mustRead(t, "page.html") != page {
+				t.Fatal("view changed the page")
+			}
+			if _, err := os.Stat("missing.html"); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("view created the link's target: %v", err)
+			}
+		})
+	}
+}
+
+func TestViewReportsFilesItCannotCheck(t *testing.T) {
+	commandFixture(t)
+	args := []string{"--rules", "rules.go,extra.go", "--html"}
+	const want = "cannot check existing file"
+	// rules.go is not a directory, so the path can't be examined at all.
+	if _, _, err := view(t, refuseOpen(t), append(args, "rules.go/graph.html")...); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("path through a file: error = %v", err)
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root can read any file")
+	}
+	write(t, "graph.html", "<html>private</html>\n")
+	if err := os.Chmod("graph.html", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := view(t, refuseOpen(t), append(args, "graph.html")...); err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("unreadable file: error = %v", err)
 	}
 }
@@ -697,15 +817,17 @@ func TestViewReplacesItsOwnPage(t *testing.T) {
 	}
 }
 
-// An unchanged file keeps its modification time but still gets the mode.
-func TestUnchangedWriteEnforcesMode(t *testing.T) {
+// An unchanged file keeps its modification time. Only a page gets its mode back,
+// because generation must succeed on a mount it can't change.
+func TestUnchangedFileMode(t *testing.T) {
 	tests := []struct {
 		name   string
 		path   string
 		before os.FileMode
 		want   os.FileMode
 	}{
-		{name: "generated file", path: "zz_infergo_gen.go", before: 0o600, want: 0o644},
+		{name: "generated file with a group-writable mode", path: "zz_infergo_gen.go", before: 0o664, want: 0o664},
+		{name: "read-only generated file", path: "zz_infergo_gen.go", before: 0o444, want: 0o444},
 		{name: "page", path: "graph.html", before: 0o644, want: 0o600},
 	}
 	for _, test := range tests {

@@ -191,13 +191,13 @@ renames it over the destination. It then prints one line to standard error:
 infergen: example.com/rules: updated zz_infergo_gen.go (4 rules)
 ```
 
-If the content already matches, the CLI keeps the file, correcting only its mode
-if needed, and prints no such line, so a generation that changes nothing is
-quiet. CRLF line endings in the existing file don't count as a difference, here
-or with `--check`. A file the CLI can't read counts as different, so it gets
-replaced. The destination is replaced,
-so choose a file reserved for generated code. With `--check`, the CLI compares
-instead and writes nothing.
+If the content already matches, the CLI leaves the file alone, including its mode
+and modification time, and prints no such line. A generation that changes nothing
+is quiet and also works on a read-only mount. CRLF line endings in the existing
+file don't count as a difference, here or with `--check`. A file the CLI can't
+read counts as different, so it gets replaced. The destination is replaced, so
+choose a file reserved for generated code. With `--check`, the CLI compares instead
+and writes nothing.
 
 Generation or temporary-write failures leave an existing output untouched.
 Errors go to standard error with an `infergen:` prefix, and the process exits
@@ -217,6 +217,12 @@ name is close, unless the rule's signature already declares that name:
 
 ```text
 infergen: example.com/rules: rules.go:5:13: no input or rule produces fact "sed"; did you mean "seed"?
+```
+
+A failed write starts with the package path too, followed by the output file:
+
+```text
+infergen: example.com/rules: write zz_infergo_gen.go: open ./.infergen-2969863659.go: read-only file system
 ```
 
 A compiler error block has no prefix of its own, because its `# <package>` heading
@@ -275,16 +281,20 @@ The hash in the default file name comes from the absolute ruleset directory. Eac
 directory reuses one path, and same-named packages in different directories don't
 collide.
 
-The output path must end in `.html` or `.htm`, and an existing file at that path
-must be an Infergo page, which the command recognizes by its `id="infergo-data"`
-marker. A rule file, a generated file, or any other existing file stops the
-command with an error that names the path and suggests `--html`. So does an
-existing file that can't be read. These checks apply to the default path too.
+The output path must end in `.html` or `.htm`. An existing file at that path must
+be a topology page: a regular file, not a symbolic link, that holds an Infergo
+page with no saved scenarios. The command finds the page by its
+`<script id="infergo-data" type="application/json">` data block and reads the
+`cases` list inside it. A rule file, a generated file, a scenario report from
+`ExportHTML`, or any other existing file stops the command with an error that
+names the path and suggests `--html`. So does an existing file that can't be read.
+These checks apply to the default path too, so a scenario report saved there stays
+until you move it or pass `--html`.
 
 The command writes through a temporary file and rename, and always leaves the
 page at mode `0600`, because it contains rule source. That holds when the content
 is unchanged too. The file then keeps its modification time, and only its mode
-changes.
+changes. Generation never changes the mode of a current file.
 
 `view` never runs a rule, so the page shows topology only. To include scenarios
 and fact values, use the generated `ExportHTML`, as the

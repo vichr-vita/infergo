@@ -53,8 +53,9 @@ source even when the generated evaluator is stale.
 The page goes to `infergo-<package>-<hash>.html` in the system temporary
 directory, and the command prints that path. The hash comes from the ruleset
 directory, so same-named packages keep separate pages. Use `--html` to choose
-another `.html` or `.htm` file. The command only replaces files that are Infergo
-pages. See the [generator reference](generator.md#view-the-rule-graph) for every option.
+another `.html` or `.htm` file. The command replaces only topology pages, so it
+won't overwrite a scenario report from `ExportHTML`. See the
+[generator reference](generator.md#view-the-rule-graph) for every option.
 
 ## Export your own scenarios
 

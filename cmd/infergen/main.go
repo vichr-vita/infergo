@@ -4,6 +4,7 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -129,7 +130,7 @@ func newCommandWithOpener(open func(path string) error) *cobra.Command {
 			}
 			updated, err := writeFile(options.Out, result.Source, 0o644)
 			if err != nil {
-				return err
+				return fmt.Errorf("%s: write %s: %w", result.Package, options.Out, err)
 			}
 			if updated {
 				fmt.Fprintf(command.ErrOrStderr(), "infergen: %s: updated %s (%s)\n", result.Package, options.Out, ruleCount(result.Rules))
@@ -139,8 +140,9 @@ func newCommandWithOpener(open func(path string) error) *cobra.Command {
 	}
 	addRulesetFlags(command)
 	command.Flags().Bool("check", false, "fail if the generated file is missing or out of date, and write nothing")
-	// view is the only subcommand, so cobra's defaults would only add noise.
-	command.CompletionOptions.DisableDefaultCmd = true
+	// view is the only listed subcommand. completion keeps working but stays out
+	// of --help, and help stays an unknown command.
+	command.CompletionOptions.HiddenDefaultCmd = true
 	command.SetHelpCommand(&cobra.Command{Hidden: true})
 
 	view := &cobra.Command{
@@ -169,9 +171,17 @@ func newCommandWithOpener(open func(path string) error) *cobra.Command {
 			if err := checkHTMLPath(path); err != nil {
 				return err
 			}
-			// The page embeds rule source, and the default directory is often shared.
-			if _, err := writeFile(path, []byte(html), 0o600); err != nil {
+			// The page embeds rule source, and the default directory is often
+			// shared, so an unchanged page must still end up private.
+			const pageMode = 0o600
+			updated, err := writeFile(path, []byte(html), pageMode)
+			if err != nil {
 				return err
+			}
+			if !updated {
+				if err := enforceMode(path, pageMode); err != nil {
+					return err
+				}
 			}
 			fmt.Fprintln(command.OutOrStdout(), path)
 			// --open reads the flag alone, so a shared config can't open a browser.
@@ -235,25 +245,60 @@ func defaultHTMLPath(packageName, directory string) string {
 	return filepath.Join(os.TempDir(), fmt.Sprintf("infergo-%s-%x.html", packageName, hash[:4]))
 }
 
-// pageMarker appears in every page that ExportHTML produces.
-const pageMarker = `id="infergo-data"`
+// pageDataOpening starts the data script of every page that ExportHTML produces.
+const pageDataOpening = `<script id="infergo-data" type="application/json">`
 
-// checkHTMLPath keeps view from replacing a file it didn't write. It accepts a
-// path only with an HTML extension, and an existing file only if it is a page.
+// savedCases returns the scenarios in a page's data script. ok is false if
+// content is not an ExportHTML page. encoding/json escapes "<", so the first
+// </script> after the opening tag always ends the data.
+func savedCases(content []byte) (cases []json.RawMessage, ok bool) {
+	_, rest, found := bytes.Cut(content, []byte(pageDataOpening))
+	if !found {
+		return nil, false
+	}
+	data, _, found := bytes.Cut(rest, []byte("</script>"))
+	if !found {
+		return nil, false
+	}
+	var page struct {
+		Cases []json.RawMessage `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &page); err != nil || page.Cases == nil {
+		return nil, false
+	}
+	return page.Cases, true
+}
+
+// checkHTMLPath keeps view from replacing a file it can't recreate. It accepts
+// a path only with an HTML extension, and an existing file only if that file is
+// a topology page: a regular file holding an ExportHTML page with no saved
+// scenarios. A symbolic link is refused, because the rename would replace the
+// link rather than its target.
 func checkHTMLPath(path string) error {
 	const advice = "choose another path with --html"
 	if extension := strings.ToLower(filepath.Ext(path)); extension != ".html" && extension != ".htm" {
 		return fmt.Errorf("%s does not end in .html or .htm; %s", path, advice)
 	}
-	existing, err := os.ReadFile(path)
+	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("cannot check existing file %s: %w; %s", path, err, advice)
 	}
-	if !bytes.Contains(existing, []byte(pageMarker)) {
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("refusing to replace %s, which is not a regular file; %s", path, advice)
+	}
+	existing, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("cannot check existing file %s: %w; %s", path, err, advice)
+	}
+	cases, isPage := savedCases(existing)
+	if !isPage {
 		return fmt.Errorf("refusing to replace %s, which is not an Infergo page; %s", path, advice)
+	}
+	if len(cases) > 0 {
+		return fmt.Errorf("refusing to replace %s, which holds saved scenarios; %s", path, advice)
 	}
 	return nil
 }
@@ -288,12 +333,13 @@ func checkFile(path string, result generate.Result) error {
 }
 
 // writeFile reports whether it changed path's content. It leaves a current file
-// in place, apart from correcting its mode, so its modification time holds. It
-// replaces any other file only after the full write succeeds. A file it cannot
-// read counts as changed, because replacing it doesn't need read access.
+// alone, so the file keeps its mode and modification time, and a read-only mount
+// doesn't fail a run that changes nothing. It replaces any other file only after
+// the full write succeeds, and gives the replacement mode. A file it cannot read
+// counts as changed, because replacing it doesn't need read access.
 func writeFile(path string, content []byte, mode os.FileMode) (bool, error) {
 	if existing, err := os.ReadFile(path); err == nil && sameSource(existing, content) {
-		return false, enforceMode(path, mode)
+		return false, nil
 	}
 	file, err := os.CreateTemp(filepath.Dir(path), ".infergen-*"+filepath.Ext(path))
 	if err != nil {
