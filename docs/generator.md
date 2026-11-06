@@ -12,6 +12,8 @@ Record the generator as a tool dependency once, from your module root:
 go get -tool github.com/vichr-vita/infergo/cmd/infergen
 ```
 
+> That selects v0.1.1, but these docs track `main`. See [what differs](#v011-differences).
+
 Then, from a ruleset directory in that module:
 
 ```sh
@@ -76,8 +78,8 @@ outputs: Outputs
 out: zz_infergo_gen.go
 ```
 
-Then run `go tool infergen` with no flags. Only `rules` is required when using the default
-contract names and output file.
+Then run `go tool infergen` with no flags. Only `rules` is required when using
+the default contract names and output file.
 
 To select a file elsewhere:
 
@@ -111,7 +113,8 @@ Use a comma-separated value for `INFERGEN_RULES`:
 INFERGEN_RULES=rates.go,awards.go INFERGEN_OUT=generated.go go tool infergen
 ```
 
-Empty environment variables are treated as unset. An explicit `--rules` list
+`INFERGEN_CHECK` takes any value that Go parses as a boolean, such as `true` or
+`1`. Empty environment variables are treated as unset. An explicit `--rules` list
 replaces a lower-precedence list instead of extending it.
 
 ## File paths and package loading
@@ -134,11 +137,12 @@ is an error. There is no dedicated `--tags` option; use the Go build environment
 such as `GOFLAGS`, when needed.
 
 The loader replaces the configured generated file with a package-only source
-file, so it can regenerate absent or stale output. If the package doesn't
+file, so it can regenerate absent or stale output. If the package does not
 type-check that way, the loader tries again with stubs of `Evaluate`,
 `EvaluateTrace`, `Ruleset`, `ViewerCase`, and `ExportHTML` in that file. This lets
 non-test files in the ruleset package call the generated API. They must call it
 correctly, because the stubs have the same signatures as the generated code.
+`_infergoPlan` has no stub, so keep that source independent of it.
 
 ## Generated declarations
 
@@ -178,42 +182,51 @@ that generated it.
 
 A contract whose fields are declared in another package, such as
 `type Inputs = dep.In` or `type Inputs dep.In`, gets no conversion, because those
-fields can use types the ruleset package cannot name. Field changes in that
-package do not break the build, so `--check` is the only protection for it.
+fields can use types the ruleset package cannot name. Adding a field or changing
+a tag does not break the build, so `--check` is the only protection against
+those changes. Removing or renaming a field, or retyping one that a rule uses,
+fails to compile in the generated file. Update any affected rule, then run
+`go generate`.
 
 ## Writes and failures
 
 When the generated source differs from the existing output, the CLI writes a
-temporary file in the output directory, sets its mode to `0644`, closes it, and
-renames it over the destination. It then prints one line to standard error:
+temporary file in the output directory with mode `0644` and renames it over the
+destination, so choose a file reserved for generated code. It then prints one
+line to standard error:
 
 ```text
 infergen: example.com/rules: updated zz_infergo_gen.go (4 rules)
 ```
 
 If the content already matches, the CLI leaves the file alone, including its mode
-and modification time, and prints no such line. A generation that changes nothing
-is quiet and also works on a read-only mount. CRLF line endings in the existing
-file don't count as a difference, here or with `--check`. A file the CLI can't
-read counts as different, so it gets replaced. The destination is replaced, so
-choose a file reserved for generated code. With `--check`, the CLI compares instead
-and writes nothing.
+and modification time, and prints no such line. This also works on a read-only
+mount. CRLF line endings in the existing file do not count as a difference, here
+or with `--check`.
+
+A file the CLI cannot read counts as different, so generation replaces it. With
+`--check`, the CLI compares instead and writes nothing, and an unreadable file
+fails with `read generated file:`.
 
 Generation or temporary-write failures leave an existing output untouched.
 Errors go to standard error with an `infergen:` prefix, and the process exits
-with status 1. One run reports declaration and graph errors together in source
-order. After 10 errors it prints `too many errors` and stops, as the Go compiler
-does. A rejected declaration can hide a related error until you fix it. For
-example, a rule with an unnamed `int` result hides a missing `typo int` parameter,
-because that parameter might be meant to read the result. The run still fails,
-and the next run reports what remains. Go package load and type-check failures
-end the run on their own, because the rules can't be read until the package
-compiles.
+with status 1.
+
+One run reports declaration and graph errors together in source order. After 10
+errors it prints `too many errors` and stops, as the Go compiler does. A rejected
+declaration can hide a related error until you fix it. For example, a rule with
+an unnamed `int` result hides a missing `typo int` parameter, because that
+parameter might be meant to read the result. The run still fails, and the next
+run reports what remains.
+
+Go package load and type-check failures end the run on their own, because the
+generator cannot read the rules until the package compiles.
 
 Each declaration, graph, and load error starts with the Go package path, followed
-by a position relative to the ruleset directory, so `go generate ./...` output
-shows which package failed. A missing fact gets a suggestion when a known fact
-name is close, unless the rule's signature already declares that name:
+by a position relative to the ruleset directory when there is one, so
+`go generate ./...` output shows which package failed. A missing fact gets a
+suggestion when a known fact name is close, unless the rule's signature already
+declares that name:
 
 ```text
 infergen: example.com/rules: rules.go:5:13: no input or rule produces fact "sed"; did you mean "seed"?
@@ -273,13 +286,13 @@ generation, with the same precedence. `--check` does not apply. `view` needs
 
 The command runs the full validation and prints the same errors and warnings as
 generation, then writes the page and prints its path to standard output. It
-writes no Go file and doesn't need a generated file, so the page reflects the
-current source even when the generated evaluator is stale. The page title is the
-package name.
+writes no Go file and does not need a generated file, so the page reflects the
+current source even when the generated evaluator is stale. The page heading and
+the browser tab show the package name.
 
 The hash in the default file name comes from the absolute ruleset directory. Each
-directory reuses one path, and same-named packages in different directories don't
-collide.
+directory reuses one path, and same-named packages in different directories do
+not collide.
 
 The output path must end in `.html` or `.htm`. An existing file at that path must
 be a topology page: a regular file, not a symbolic link, that holds an Infergo
@@ -287,9 +300,9 @@ page with no saved scenarios. The command finds the page by its
 `<script id="infergo-data" type="application/json">` data block and reads the
 `cases` list inside it. A rule file, a generated file, a scenario report from
 `ExportHTML`, or any other existing file stops the command with an error that
-names the path and suggests `--html`. So does an existing file that can't be read.
-These checks apply to the default path too, so a scenario report saved there stays
-until you move it or pass `--html`.
+names the path and suggests `--html`. So does an existing file that cannot be
+read. These checks apply to the default path too, so a scenario report saved
+there stays until you move it or pass `--html`.
 
 The command writes through a temporary file and rename, and always leaves the
 page at mode `0600`, because it contains rule source. That holds when the content
@@ -302,10 +315,10 @@ and fact values, use the generated `ExportHTML`, as the
 
 `--open` starts `xdg-open` on Linux, `open` on macOS, and `rundll32
 url.dll,FileProtocolHandler` on Windows, and does not wait for it. If the program
-can't start, the command exits with an error naming the file, and the file stays
+cannot start, the command exits with an error naming the file, and the file stays
 in place. A failure inside the program after it starts goes undetected. `--open`
 exists only as a command-line flag, so a shared config file or environment
-variable can't open a browser.
+variable cannot open a browser.
 
 ## Keep generation reproducible
 
@@ -321,10 +334,10 @@ Until you regenerate, the viewer shows the old text and the check below fails.
 
 The compiler catches some staleness. The contract conversions in the generated
 file stop compiling when an input or output struct declared in the ruleset package
-gains, loses, reorders, or retypes a field. Other changes still compile. Go types do not record parameter
-names, so renaming a parameter to another fact of the same type keeps the old
-wiring until you regenerate. Struct conversion ignores tags, so a changed `fact`
-tag behaves the same way.
+gains, loses, reorders, or retypes a field. Other changes still compile. Go types
+do not record parameter names, so renaming a parameter to another fact of the same
+type keeps the old wiring until you regenerate. Struct conversion ignores tags, so
+a changed `fact` tag behaves the same way.
 
 Check mode catches all of these. Commit the generated file alongside its source,
 as this repository does, so that consumers can build without invoking the
@@ -334,6 +347,8 @@ generator. Then run this in CI:
 INFERGEN_CHECK=true go generate ./...
 ```
 
+> On v0.1.1, this gate [passes without checking anything](#v011-differences).
+
 The environment variable reaches every `infergen` process that `go generate`
 starts, so each package keeps its directive unchanged. `--check` does the same
 for a single run. Each process generates as usual, compares the result with the
@@ -342,3 +357,36 @@ current, apart from any warnings. When the file differs or is missing, it exits
 with status 1 and an error that names the Go package and the file and tells the
 reader to run `go generate`. The [development
 guide](../CONTRIBUTING.md#verify-a-change) gives commands for this repository.
+
+## v0.1.1 differences
+
+These docs track `main`, but `go get -tool` without a version selects the latest
+release, v0.1.1. To get the behavior these docs describe, install `main` and
+regenerate:
+
+```sh
+go get -tool github.com/vichr-vita/infergo/cmd/infergen@main
+go generate ./...
+```
+
+v0.1.1 differs from the rest of these docs in the following ways:
+
+- With `MaxParallel` above 1, a rule panic happens on a worker goroutine, so it
+  crashes the process and `recover` cannot catch it. At 0 or 1 the panic stays on
+  the calling goroutine, and `recover` returns the original value, because
+  `PanicError` does not exist.
+- There is no `view` command. It fails with `unknown command "view"`.
+- There is no `--check` flag. It fails with `unknown flag: --check`.
+  `INFERGEN_CHECK` is ignored, so the CI gate rewrites stale files and exits 0.
+- Generated code has no contract conversions, so a changed contract field does
+  not stop the build.
+- The loader has no stubs of the generated API. If non-test source in the ruleset
+  package calls `Evaluate`, generation fails with `undefined: Evaluate`, even
+  when the generated file exists.
+- A run stops at the first declaration or graph error. Errors have no Go package
+  prefix, and there are no warnings or `did you mean` suggestions.
+- Every run rewrites the output file, even when nothing changed, and prints no
+  `updated` line.
+- The module needs Go 1.26.4. Go downloads that toolchain automatically unless
+  `GOTOOLCHAIN` pins an older one, and then `go get` fails with
+  `requires go >= 1.26.4`.

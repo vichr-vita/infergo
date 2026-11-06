@@ -23,9 +23,11 @@ The initial view selects the producer of the first requested output, which is
 scrolling, use the zoom buttons, or choose **Fit map** and **Actual size**.
 With the graph focused, `+` and `-` zoom, `0` fits, and `1` restores actual size.
 Pinch zoom works with touch and trackpads. Arrow keys use native scrolling.
-The phone layout shows the selected rule, its producers, and its consumers as
-a dependency list. The same inspector appears inside the selected step. Choose
-any rule with the rule selector or search to follow another part of the graph.
+At window widths of 1100px or less, the page hides the graph and its controls
+and shows the selected rule, its producers, and its consumers as a dependency
+list. Widen the window to get the graph back. The same inspector appears inside
+the selected step. Choose any rule with the rule selector or search to follow
+another part of the graph.
 
 Search by rule name, fact name, or requirement. Search selects a matching rule
 and highlights matches. Use the rule selector to jump directly to any function.
@@ -34,6 +36,8 @@ Reload, Back, Forward, and **Copy link** preserve that selection. A copied link
 requires access to the same exported HTML file.
 
 ## Open your own graph
+
+> [v0.1.1 has no `view` command](generator.md#v011-differences).
 
 Run this from your ruleset directory:
 
@@ -54,7 +58,7 @@ The page goes to `infergo-<package>-<hash>.html` in the system temporary
 directory, and the command prints that path. The hash comes from the ruleset
 directory, so same-named packages keep separate pages. Use `--html` to choose
 another `.html` or `.htm` file. The command replaces only topology pages, so it
-won't overwrite a scenario report from `ExportHTML`. See the
+will not overwrite a scenario report from `ExportHTML`. See the
 [generator reference](generator.md#view-the-rule-graph) for every option.
 
 ## Export your own scenarios
@@ -73,35 +77,35 @@ uses the included bonus ruleset:
 package main
 
 import (
-    "context"
-    "log"
-    "os"
+	"context"
+	"log"
+	"os"
 
-    "github.com/vichr-vita/infergo/ruleset/bonus"
+	"github.com/vichr-vita/infergo/ruleset/bonus"
 )
 
 func main() {
-    html, err := bonus.ExportHTML(context.Background(), "Bonus review", []bonus.ViewerCase{
-        {
-            ID: "review",
-            Label: "Finance approval pending",
-            Inputs: bonus.Inputs{
-                EmployeeID: "E01", Active: true, TenureMonths: 48,
-                PerformanceScore: 94, SalaryCents: 8_000_000,
-                Role: bonus.Specialist, Department: bonus.Engineering,
-                TrainingComplete: true, CompanyTargetMet: true,
-                EmployeeBudgetCents: 1_200_000,
-                ManagerApproved: true, FinanceApproved: false,
-                CriticalSkill: true,
-            },
-        },
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-    if err := os.WriteFile("bonus.html", []byte(html), 0o644); err != nil {
-        log.Fatal(err)
-    }
+	html, err := bonus.ExportHTML(context.Background(), "Bonus review", []bonus.ViewerCase{
+		{
+			ID:    "review",
+			Label: "Finance approval pending",
+			Inputs: bonus.Inputs{
+				EmployeeID: "E01", Active: true, TenureMonths: 48,
+				PerformanceScore: 94, SalaryCents: 8_000_000,
+				Role: bonus.Specialist, Department: bonus.Engineering,
+				TrainingComplete: true, CompanyTargetMet: true,
+				EmployeeBudgetCents: 1_200_000,
+				ManagerApproved:     true, FinanceApproved: false,
+				CriticalSkill: true,
+			},
+		},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := os.WriteFile("bonus.html", []byte(html), 0o644); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
@@ -138,11 +142,54 @@ input values, successful intermediate values, rule outcomes, and the evaluation
 error. Each rule owns its trace entry during parallel evaluation. Concurrent
 evaluations use separate snapshots.
 
-Values are captured as strings. JSON formatting preserves integer precision and
-pointer contents. Unsupported or cyclic values display their type and formatting
-error. Formatting can invoke `MarshalJSON`; keep those methods safe for
-concurrent readers. Input data must remain immutable
-until evaluation returns, as with `Evaluate`.
+```go
+type Snapshot struct {
+	Inputs map[string]string
+	Trace  []RuleTrace
+	Error  string
+}
+
+type RuleTrace struct {
+	Rule  string
+	Kind  string
+	Error string
+	Facts map[string]string
+}
+```
+
+`Snapshot.Inputs` maps each input fact to its formatted value. `Trace` has one
+entry for each retained rule. `Snapshot.Error` holds the evaluation error, or is
+empty on success. In each `RuleTrace`, `Rule` is the rule's name. `Facts` maps its
+output facts to formatted values and is empty unless the rule succeeded.
+`RuleTrace.Error` holds the rule's own error text, without the `rule <name>:`
+prefix of `Snapshot.Error`.
+
+| `Kind` | Viewer label | Meaning |
+| --- | --- | --- |
+| `succeeded` | Succeeded | The rule returned no error. |
+| `failed` | Failed | The rule returned an error. |
+| `canceled` | Canceled | The rule returned an error matching `context.Canceled` or `context.DeadlineExceeded`. |
+| `not_run` | Not run | The rule never ran, because a dependency failed or evaluation stopped first. |
+
+This loop prints each rule's outcome:
+
+```go
+for _, rule := range snapshot.Trace {
+	fmt.Println(rule.Rule, rule.Kind, rule.Error)
+}
+```
+
+Values are captured as strings. `FormatValue` uses `encoding/json`, which
+preserves integer precision and pointer contents. It also omits unexported fields
+and writes `[]byte` as base64, so a struct with only unexported fields displays
+as `{}`. Unsupported or cyclic values display their type and formatting error.
+Formatting can invoke `MarshalJSON`; keep those methods safe for concurrent
+readers. Input data must remain immutable until evaluation returns, as with
+`Evaluate`.
+
+The viewer adds thousands separators to non-negative integers, and a ` c` suffix
+when the fact name ends in `Cents` or `_cents`. A `year` of 2026 displays as
+`2,026`, while its `Snapshot` string stays `2026`.
 
 `Evaluate` does not capture or format values. Both calls use the same typed
 storage, direct rule calls, and scheduler. `Ruleset()` returns fresh metadata
@@ -153,6 +200,74 @@ the evaluator runs or when someone opens an export.
 Exports contain source and captured values. Choose scenarios suitable for the
 people receiving the file. User strings are encoded as inert JSON and rendered
 as text, including source snippets and error messages.
+
+### Snapshot and viewer API
+
+Each generated ruleset package declares these for callers:
+
+```go
+func EvaluateTrace(ctx context.Context, input Inputs, options infergo.Options) (Outputs, infergo.Snapshot, error)
+func Ruleset() infergo.Ruleset
+func ExportHTML(ctx context.Context, title string, cases []ViewerCase) (string, error)
+
+type ViewerCase = infergo.ViewerCase[Inputs]
+```
+
+`title` sets the page heading and the browser tab. The `infergo` package defines
+the types behind them. `Ruleset`, `RuleSpec`, `FactSpec`, and the snapshot structs
+also have `json` tags, but `ViewerCase` does not:
+
+```go
+type ViewerCase[I any] struct {
+	ID      string
+	Label   string
+	Inputs  I
+	Options Options
+}
+
+type Ruleset struct {
+	Inputs  []FactSpec
+	Outputs []FactSpec
+	Rules   []RuleSpec
+}
+
+type RuleSpec struct {
+	ID          string
+	Requirement string
+	Source      string
+	Inputs      []FactSpec
+	Outputs     []FactSpec
+}
+
+type FactSpec struct {
+	Name string
+	Type string
+}
+```
+
+`RuleSpec.ID` is the rule function's name, `Requirement` is its doc comment, and
+`Source` is its Go source. `FactSpec.Type` is the fact's Go type as text.
+
+The `infergo` package also exports these for generated code, so most applications
+do not call them:
+
+```go
+func ExportHTML[I, O any](
+	ctx context.Context,
+	title string,
+	ruleset Ruleset,
+	cases []ViewerCase[I],
+	evaluate func(context.Context, I, Options) (O, Snapshot, error),
+) (string, error)
+
+func FormatValue(value any) string
+
+func (t *RuleTrace) Complete(err error)
+```
+
+`infergo.ExportHTML` builds the page for the generated `ExportHTML` and for
+`infergen view`. `FormatValue` produces the strings in a snapshot, and `Complete`
+records a rule's `Kind` and `Error`.
 
 ## Maintain the viewer
 
@@ -166,6 +281,9 @@ npm run build:viewer
 npx playwright install chromium webkit
 npm run test:ui
 ```
+
+Linux hosts may need more for WebKit, as the [development
+guide](../CONTRIBUTING.md#verify-a-change) explains.
 
 CI checks that the bundle is current and runs Playwright in Chromium and WebKit,
 including 320px and 390px portrait widths and a 667px landscape width. Tests cover

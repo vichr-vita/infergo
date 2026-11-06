@@ -24,6 +24,8 @@ The `go get -tool` command adds the Infergo module to `go.mod` and records
 executable. The generation directive below runs it with `go tool infergen` at
 the version recorded in your module, and `go mod tidy` keeps the entry.
 
+> This installs v0.1.1, which needs Go 1.26.4. See [what differs](generator.md#v011-differences).
+
 If you are working on a local Infergo checkout, use the [local replacement
 workflow](../CONTRIBUTING.md#use-a-local-checkout-from-another-module) instead of
 fetching the generator.
@@ -38,12 +40,12 @@ package score
 //go:generate go tool infergen --rules rules.go
 
 type Inputs struct {
-    Seed   int `fact:"seed"`
-    Offset int `fact:"offset"`
+	Seed   int `fact:"seed"`
+	Offset int `fact:"offset"`
 }
 
 type Outputs struct {
-    Total int `fact:"total"`
+	Total int `fact:"total"`
 }
 ```
 
@@ -61,14 +63,14 @@ package score
 import "errors"
 
 func Double(seed int) (doubled int, err error) {
-    if seed < 0 {
-        return 0, errors.New("seed must not be negative")
-    }
-    return seed * 2, nil
+	if seed < 0 {
+		return 0, errors.New("seed must not be negative")
+	}
+	return seed * 2, nil
 }
 
 func AddOffset(doubled int, offset int) (total int) {
-    return doubled + offset
+	return doubled + offset
 }
 ```
 
@@ -87,7 +89,15 @@ From the module root, run:
 go generate ./score
 ```
 
-This writes `score/zz_infergo_gen.go`, which declares:
+This writes `score/zz_infergo_gen.go` and prints one line to standard error:
+
+```text
+infergen: example.com/infergo-demo/score: updated zz_infergo_gen.go (2 rules)
+```
+
+> On v0.1.1, this run [prints nothing](generator.md#v011-differences).
+
+A run that changes nothing prints nothing. The generated file declares:
 
 ```go
 func Evaluate(ctx context.Context, input Inputs, options infergo.Options) (Outputs, error)
@@ -107,24 +117,24 @@ Create `main.go` in the module root:
 package main
 
 import (
-    "context"
-    "fmt"
-    "log"
+	"context"
+	"fmt"
+	"log"
 
-    "example.com/infergo-demo/score"
-    "github.com/vichr-vita/infergo"
+	"example.com/infergo-demo/score"
+	"github.com/vichr-vita/infergo"
 )
 
 func main() {
-    result, err := score.Evaluate(
-        context.Background(),
-        score.Inputs{Seed: 10, Offset: 3},
-        infergo.Options{},
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-    fmt.Println(result.Total)
+	result, err := score.Evaluate(
+		context.Background(),
+		score.Inputs{Seed: 10, Offset: 3},
+		infergo.Options{},
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(result.Total)
 }
 ```
 
@@ -156,32 +166,32 @@ Create `score/rules_test.go`:
 package score
 
 import (
-    "errors"
-    "testing"
+	"errors"
+	"testing"
 
-    "github.com/vichr-vita/infergo"
+	"github.com/vichr-vita/infergo"
 )
 
 func TestEvaluate(t *testing.T) {
-    for _, parallel := range []int{0, 4} {
-        got, err := Evaluate(t.Context(), Inputs{Seed: 10, Offset: 3}, infergo.Options{
-            MaxParallel: parallel,
-        })
-        if err != nil || got.Total != 23 {
-            t.Fatalf("parallel=%d: got %+v, error %v", parallel, got, err)
-        }
-    }
+	for _, parallel := range []int{0, 4} {
+		got, err := Evaluate(t.Context(), Inputs{Seed: 10, Offset: 3}, infergo.Options{
+			MaxParallel: parallel,
+		})
+		if err != nil || got.Total != 23 {
+			t.Fatalf("parallel=%d: got %+v, error %v", parallel, got, err)
+		}
+	}
 }
 
 func TestNegativeSeed(t *testing.T) {
-    got, err := Evaluate(t.Context(), Inputs{Seed: -1}, infergo.Options{})
-    var ruleErr *infergo.RuleError
-    if !errors.As(err, &ruleErr) || ruleErr.Rule != "Double" {
-        t.Fatalf("expected Double to fail, got %v", err)
-    }
-    if got != (Outputs{}) {
-        t.Fatalf("expected zero outputs, got %+v", got)
-    }
+	got, err := Evaluate(t.Context(), Inputs{Seed: -1}, infergo.Options{})
+	var ruleErr *infergo.RuleError
+	if !errors.As(err, &ruleErr) || ruleErr.Rule != "Double" {
+		t.Fatalf("expected Double to fail, got %v", err)
+	}
+	if got != (Outputs{}) {
+		t.Fatalf("expected zero outputs, got %+v", got)
+	}
 }
 ```
 
@@ -192,7 +202,9 @@ go test -race ./...
 go generate ./score
 ```
 
-The second command confirms that generation still works after `go mod tidy`.
+The `-race` flag needs cgo and a C toolchain, so leave it out if you do not have
+them. The second command confirms that generation still works after
+`go mod tidy`. It prints nothing when the generated file is already current.
 
 The two rules form a chain, so increasing `MaxParallel` cannot make them run
 simultaneously. Parallelism helps only when the graph has independent work.
@@ -203,4 +215,6 @@ Read [Writing rulesets](rulesets.md) for multiple results, optional values,
 context-aware rules, and exact type matching. Use the [generator
 reference](generator.md) when splitting rules across files or configuring
 generation, and the [runtime reference](runtime.md) when integrating evaluation
-into a service.
+into a service. [Open your own graph](visualization.md#open-your-own-graph) to
+see the rules you wrote, and [check generated code in
+CI](generator.md#keep-generation-reproducible) once you commit it.

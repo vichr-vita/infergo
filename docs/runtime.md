@@ -1,13 +1,15 @@
 # Runtime and API reference
 
-For optional diagnostic snapshots and offline HTML graph export, see the
-[visualization guide](visualization.md). `EvaluateTrace` preserves `Evaluate`'s
-result and error behavior while returning diagnostic values separately.
-
 Most applications call the generated `Evaluate` function. The public `infergo`
 package also exposes a dependency scheduler for callers that supply their own
 rule dispatch and storage. This page covers both interfaces and their execution
 semantics. The implementation is in [plan.go](../plan.go).
+
+For optional diagnostic snapshots and offline HTML graph export, see the
+[visualization guide](visualization.md), which also has the [snapshot and viewer
+API](visualization.md#snapshot-and-viewer-api). `EvaluateTrace` preserves
+`Evaluate`'s result and error behavior while returning diagnostic values
+separately.
 
 ## Generated Evaluate
 
@@ -37,7 +39,7 @@ contract](rulesets.md#keep-facts-immutable).
 
 ```go
 type Options struct {
-    MaxParallel int
+	MaxParallel int
 }
 ```
 
@@ -80,8 +82,8 @@ of that rule's outputs. The runtime returns an `*infergo.RuleError`:
 
 ```go
 type RuleError struct {
-    Rule string
-    Err  error
+	Rule string
+	Err  error
 }
 ```
 
@@ -94,10 +96,10 @@ and `infergo` packages:
 ```go
 var ruleErr *infergo.RuleError
 if errors.As(err, &ruleErr) {
-    fmt.Printf("%s failed: %v\n", ruleErr.Rule, ruleErr.Err)
+	fmt.Printf("%s failed: %v\n", ruleErr.Rule, ruleErr.Err)
 }
 if errors.Is(err, context.Canceled) {
-    fmt.Println("evaluation was canceled")
+	fmt.Println("evaluation was canceled")
 }
 ```
 
@@ -131,6 +133,8 @@ generated fact storage are not rolled back, whether a rule fails or panics.
 
 ## Rule panics
 
+> On v0.1.1, a parallel rule panic [crashes the process](generator.md#v011-differences).
+
 A panic in a rule stays a panic. It does not become a returned error or a
 `RuleError`. At every `MaxParallel` value, it surfaces on the goroutine that
 called `Evaluate` or `Run`, so a `recover` there behaves the same in sequential
@@ -138,9 +142,9 @@ and parallel execution. The recovered value is always an `*infergo.PanicError`:
 
 ```go
 type PanicError struct {
-    Rule  string
-    Value any
-    Stack []byte
+	Rule  string
+	Value any
+	Stack []byte
 }
 ```
 
@@ -154,21 +158,21 @@ clients. Code that compares a recovered value directly must read `Value` or use
 
 Go turns `panic(nil)` into a `*runtime.PanicNilError`, which `Value` then holds.
 Under `GODEBUG=panicnil=1`, `Value` is nil, and the panic still stops evaluation
-and reaches the caller. The one exception is `panic(nil)` raised during a
-`runtime.Goexit` under that setting, which Go cannot distinguish from a plain
+and reaches the caller. The one exception is `panic(nil)` during a
+`runtime.Goexit` under that setting. Go cannot distinguish it from a plain
 `Goexit`, so the caller sees the `Goexit` behavior described below.
 
 This handler logs a rule panic and passes any other panic along:
 
 ```go
 defer func() {
-    switch recovered := recover().(type) {
-    case nil:
-    case *infergo.PanicError:
-        log.Printf("rule %s panicked: %v\n%s", recovered.Rule, recovered.Value, recovered.Stack)
-    default:
-        panic(recovered)
-    }
+	switch recovered := recover().(type) {
+	case nil:
+	case *infergo.PanicError:
+		log.Printf("rule %s panicked: %v\n%s", recovered.Rule, recovered.Value, recovered.Stack)
+	default:
+		panic(recovered)
+	}
 }()
 ```
 
@@ -185,14 +189,14 @@ scheduler observed one of those first.
 no HTML, so a panicking case stops the whole export.
 
 A rule that calls `runtime.Goexit`, for example through `t.FailNow`, gets the
-same cleanup. The goroutine that called `Evaluate` or `Run` then exits, as it
-would in sequential execution, unless a rule panicked.
+same cleanup. The goroutine that called `Evaluate` or `Run` then exits at every
+`MaxParallel`, unless a rule panicked.
 
 If a deferred function panics during that `Goexit`, the caller still receives a
-`*PanicError`. Sequential execution runs rules on the caller's goroutine, so Go
-resumes the `Goexit` after the function that recovered finishes, and the
-goroutine exits. In parallel execution, the `Goexit` ends on a worker and the
-caller continues normally after `recover`.
+`*PanicError`. What happens after `recover` depends on where the rule ran. In
+sequential execution it ran on the caller's goroutine, so Go resumes the
+`Goexit` when the function that recovered finishes, and the goroutine exits. In
+parallel execution it ran on a worker, so the caller continues normally.
 
 ## Rule and NewPlan
 
@@ -200,8 +204,8 @@ Use the lower-level API when you need to supply the execution callback yourself:
 
 ```go
 type Rule struct {
-    Name      string
-    DependsOn []int
+	Name      string
+	DependsOn []int
 }
 
 func NewPlan(rules []Rule) (*Plan, error)
@@ -225,9 +229,9 @@ independent mutable storage.
 
 ```go
 func (p *Plan) Run(
-    ctx context.Context,
-    options Options,
-    execute func(context.Context, int) error,
+	ctx context.Context,
+	options Options,
+	execute func(context.Context, int) error,
 ) error
 ```
 
@@ -258,40 +262,40 @@ This program computes two independent values, then combines them:
 package main
 
 import (
-    "context"
-    "fmt"
+	"context"
+	"fmt"
 
-    "github.com/vichr-vita/infergo"
+	"github.com/vichr-vita/infergo"
 )
 
 func main() {
-    plan, err := infergo.NewPlan([]infergo.Rule{
-        {Name: "Left"},
-        {Name: "Right"},
-        {Name: "Join", DependsOn: []int{0, 1}},
-    })
-    if err != nil {
-        panic(err)
-    }
+	plan, err := infergo.NewPlan([]infergo.Rule{
+		{Name: "Left"},
+		{Name: "Right"},
+		{Name: "Join", DependsOn: []int{0, 1}},
+	})
+	if err != nil {
+		panic(err)
+	}
 
-    // This storage belongs to one run. Each rule writes its own element.
-    var values [3]int
-    err = plan.Run(context.Background(), infergo.Options{MaxParallel: 2},
-        func(_ context.Context, id int) error {
-            switch id {
-            case 0:
-                values[0] = 4
-            case 1:
-                values[1] = 6
-            case 2:
-                values[2] = values[0] + values[1]
-            }
-            return nil
-        })
-    if err != nil {
-        panic(err)
-    }
-    fmt.Println(values[2]) // 10
+	// This storage belongs to one run. Each rule writes its own element.
+	var values [3]int
+	err = plan.Run(context.Background(), infergo.Options{MaxParallel: 2},
+		func(_ context.Context, id int) error {
+			switch id {
+			case 0:
+				values[0] = 4
+			case 1:
+				values[1] = 6
+			case 2:
+				values[2] = values[0] + values[1]
+			}
+			return nil
+		})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(values[2]) // 10
 }
 ```
 
