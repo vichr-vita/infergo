@@ -108,8 +108,10 @@ to each call. Avoid mutable execution state on `Plan`. Dependencies must count
 producer rules once even when several facts come from that producer.
 
 Failure and cancellation must signal running work and wait for it before return.
-Independent rule completions must not block forever after the coordinator stops
-receiving. Preserve the sequential path for limits zero and one.
+A rule panic follows the same cleanup and must reach the goroutine that called
+`Run` at every limit. Independent rule completions must not block forever after
+the coordinator stops receiving. Preserve the sequential path for limits zero
+and one.
 
 The public contract does not require a specific order among independent rules.
 Tests should assert dependencies and bounds without creating an accidental

@@ -114,7 +114,8 @@ Inputs and referenced data must remain immutable throughout evaluation.
 
 Read the [runtime reference](docs/runtime.md) before using parallel execution or
 rules that perform I/O. The current implementation has no dynamic branches,
-retries, fact updates, incremental reevaluation, or panic recovery.
+retries, fact updates, or incremental reevaluation, and a rule panic stays a
+panic on the goroutine that called `Evaluate`.
 
 The runtime in [plan.go](plan.go) imports only the standard library. Package
 loading and type inspection belong to the generator.
