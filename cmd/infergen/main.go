@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -30,7 +31,7 @@ func newCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:           "infergen [flags]",
 		Short:         "Generate typed evaluators from named Go rule functions",
-		Example:       "  infergen --rules rules.go\n  infergen --config infergen.yaml",
+		Example:       "  infergen --rules rules.go\n  infergen --config infergen.yaml\n  INFERGEN_CHECK=true go generate ./...",
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -53,6 +54,7 @@ func newCommand() *cobra.Command {
 				Inputs  string
 				Outputs string
 				Out     string
+				Check   bool
 			}
 			if err := config.Unmarshal(&options); err != nil {
 				return fmt.Errorf("decode config: %w", err)
@@ -74,6 +76,9 @@ func newCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if options.Check {
+				return checkFile(options.Out, source)
+			}
 			return writeFile(options.Out, source)
 		},
 	}
@@ -83,7 +88,24 @@ func newCommand() *cobra.Command {
 	flags.String("inputs", "Inputs", "external input struct type")
 	flags.String("outputs", "Outputs", "requested output struct type")
 	flags.String("out", "zz_infergo_gen.go", "generated Go file")
+	flags.Bool("check", false, "fail if the generated file is missing or out of date, and write nothing")
 	return command
+}
+
+// checkFile fails unless path already holds source. It never writes. CRLF in
+// the file on disk is ignored so that an autocrlf checkout passes.
+func checkFile(path string, source []byte) error {
+	existing, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("%s is missing; run go generate", path)
+	}
+	if err != nil {
+		return fmt.Errorf("read generated file: %w", err)
+	}
+	if !bytes.Equal(bytes.ReplaceAll(existing, []byte("\r\n"), []byte("\n")), source) {
+		return fmt.Errorf("%s is out of date; run go generate", path)
+	}
+	return nil
 }
 
 // Replace the generated file only after generation and the full write succeed.

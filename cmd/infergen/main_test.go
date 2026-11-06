@@ -17,7 +17,7 @@ func commandFixture(t *testing.T) {
 	}
 	t.Chdir(t.TempDir())
 	t.Setenv("GOWORK", "off")
-	for _, key := range []string{"CONFIG", "RULES", "INPUTS", "OUTPUTS", "OUT"} {
+	for _, key := range []string{"CONFIG", "RULES", "INPUTS", "OUTPUTS", "OUT", "CHECK"} {
 		t.Setenv("INFERGEN_"+key, "")
 	}
 	write(t, "go.mod", fmt.Sprintf("module example.com/rules\n\ngo 1.26.0\n\nrequire github.com/vichr-vita/infergo v0.0.0\nreplace github.com/vichr-vita/infergo => %q\n", root))
@@ -153,6 +153,7 @@ func TestCommandErrorsPreserveOutput(t *testing.T) {
 		{name: "invalid config type", config: "rules: {file: rules.go}", want: "decode config:"},
 		{name: "blank rule name", args: []string{"--rules", "rules.go, "}, want: "rule file names must not be empty"},
 		{name: "missing rule file", args: []string{"--rules", "missing.go"}, want: "read ruleset package:"},
+		{name: "invalid check value", config: "rules: [rules.go, extra.go]\ncheck: sometimes\n", want: "decode config:"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -176,6 +177,103 @@ func TestCommandErrorsPreserveOutput(t *testing.T) {
 	}
 }
 
+func TestCheckMode(t *testing.T) {
+	const rules = "rules.go,extra.go"
+	triggers := []struct {
+		name string
+		args []string
+		env  string
+	}{
+		{name: "flag", args: []string{"--rules", rules, "--check"}},
+		{name: "environment", args: []string{"--rules", rules}, env: "true"},
+	}
+	states := []struct {
+		name    string
+		prepare func(t *testing.T)
+		want    string
+	}{
+		{name: "current", prepare: func(*testing.T) {}},
+		{
+			// A parameter rename still compiles, so only check mode can report it.
+			name: "stale",
+			prepare: func(t *testing.T) {
+				write(t, "extra.go", "package rules\nfunc Finish(seed int) (value int) { return seed + 1 }\n")
+			},
+			want: "zz_infergo_gen.go is out of date; run go generate",
+		},
+		{
+			name: "missing",
+			prepare: func(t *testing.T) {
+				if err := os.Remove("zz_infergo_gen.go"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "zz_infergo_gen.go is missing; run go generate",
+		},
+	}
+	for _, trigger := range triggers {
+		for _, state := range states {
+			t.Run(trigger.name+"/"+state.name, func(t *testing.T) {
+				commandFixture(t)
+				generate := newCommand()
+				generate.SetArgs([]string{"--rules", rules})
+				if err := generate.Execute(); err != nil {
+					t.Fatal(err)
+				}
+				state.prepare(t)
+				before, readErr := os.ReadFile("zz_infergo_gen.go")
+
+				t.Setenv("INFERGEN_CHECK", trigger.env)
+				command := newCommand()
+				command.SetArgs(trigger.args)
+				err := command.Execute()
+				if state.want == "" && err != nil {
+					t.Fatal(err)
+				}
+				if state.want != "" && (err == nil || !strings.Contains(err.Error(), state.want)) {
+					t.Fatalf("error = %v, want %q", err, state.want)
+				}
+
+				after, afterErr := os.ReadFile("zz_infergo_gen.go")
+				if !bytes.Equal(before, after) || (readErr == nil) != (afterErr == nil) {
+					t.Fatalf("check mode wrote output: %q, error %v", after, afterErr)
+				}
+				temporary, err := filepath.Glob(".infergen-*")
+				if err != nil || len(temporary) != 0 {
+					t.Fatalf("check mode left temporary files: %v, error %v", temporary, err)
+				}
+			})
+		}
+	}
+}
+
+func TestCheckModeIgnoresLineEndings(t *testing.T) {
+	commandFixture(t)
+	write(t, "rules.go", strings.ReplaceAll(`package rules
+type Inputs struct { Seed int }
+type Outputs struct { Value int `+"`fact:\"value\"`"+` }
+func Rule(Seed int) (value int) {
+	return Seed + 1
+}
+`, "\n", "\r\n"))
+	generate := newCommand()
+	generate.SetArgs([]string{"--rules", "rules.go"})
+	if err := generate.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.ReadFile("zz_infergo_gen.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, "zz_infergo_gen.go", strings.ReplaceAll(string(source), "\n", "\r\n"))
+
+	check := newCommand()
+	check.SetArgs([]string{"--rules", "rules.go", "--check"})
+	if err := check.Execute(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCommandHelpSkipsConfig(t *testing.T) {
 	commandFixture(t)
 	write(t, "infergen.yaml", "rules: [")
@@ -186,7 +284,7 @@ func TestCommandHelpSkipsConfig(t *testing.T) {
 	if err := command.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	for _, flag := range []string{"--config", "--rules", "--inputs", "--outputs", "--out"} {
+	for _, flag := range []string{"--config", "--rules", "--inputs", "--outputs", "--out", "--check"} {
 		if !strings.Contains(output.String(), flag) {
 			t.Fatalf("help does not include %s:\n%s", flag, &output)
 		}
