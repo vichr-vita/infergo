@@ -189,31 +189,54 @@ infergen: example.com/rules: updated zz_infergo_gen.go (4 rules)
 ```
 
 If the content already matches, the CLI leaves the file alone and prints no such
-line, so a generation that changes nothing is quiet. The destination is replaced,
+line, so a generation that changes nothing is quiet. CRLF line endings in the
+existing file don't count as a difference, here or with `--check`. A file the CLI
+can't read counts as different, so it gets replaced. The destination is replaced,
 so choose a file reserved for generated code. With `--check`, the CLI compares
 instead and writes nothing.
 
 Generation or temporary-write failures leave an existing output untouched.
 Errors go to standard error with an `infergen:` prefix, and the process exits
-with status 1. One run reports every declaration and graph error in source order.
-After 10 errors it prints `too many errors` and stops, as the Go compiler does.
-Go package load and type-check failures end the run on their own, because the
-rules can't be read until the package compiles.
+with status 1. One run reports declaration and graph errors together in source
+order. After 10 errors it prints `too many errors` and stops, as the Go compiler
+does. A rejected declaration can hide a related error until you fix it. For
+example, a rule with an unnamed `int` result hides a missing `typo int` parameter,
+because that parameter might be meant to read the result. The run still fails,
+and the next run reports what remains. Go package load and type-check failures
+end the run on their own, because the rules can't be read until the package
+compiles.
 
-Source positions are relative to the ruleset directory. Config and path errors
-may have no position. A missing fact gets a suggestion when a known fact name is
-close:
+Each declaration, graph, and load error starts with the Go package path, followed
+by a position relative to the ruleset directory, so `go generate ./...` output
+shows which package failed. A missing fact gets a suggestion when a known fact
+name is close, unless the rule's signature already declares that name:
 
 ```text
-infergen: rules.go:5:13: no input or rule produces fact "sed"; did you mean "seed"?
+infergen: example.com/rules: rules.go:5:13: no input or rule produces fact "sed"; did you mean "seed"?
 ```
+
+A compiler error block has no prefix of its own, because its `# <package>` heading
+already names the package:
+
+```text
+infergen: load ruleset:
+# example.com/rules
+./rules.go:3:12: undefined: undefinedType
+infergen: example.com/rules: load ruleset: rules.go:3:12: undefined: undefinedType
+```
+
+A position in a file outside the ruleset directory stays absolute, for example
+when a contract field is declared in another package. Errors from before the
+package loads, such as config and path errors, have no package prefix and may have
+no position. One of them, `read ruleset package:`, prints the rule file's absolute
+path.
 
 A successful run can also print warnings to standard error. Warnings never change
 the exit status, and `--check` prints them too:
 
 ```text
-infergen: example.com/rules: warning: rules.go:12:6: rule Orphan is not needed by any output and was left out
 infergen: example.com/rules: warning: rules.go:4:2: input fact "region" is not used by any output or retained rule
+infergen: example.com/rules: warning: rules.go:12:6: rule Orphan is not needed by any output and was left out
 ```
 
 An input counts as unused when no retained rule consumes it and no output reads

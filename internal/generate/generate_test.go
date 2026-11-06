@@ -265,12 +265,12 @@ func B(a int) (b int) { return a }
 	_, err := Generate(config)
 	got := lines(t, err)
 	want := []string{
-		"rules.go:8:5: Outputs fields must be exported",
-		"rules.go:10:11: no input or rule produces fact \"sed\"",
-		"rules.go:11:25: fact \"label\" has type string, expected int",
-		"rules.go:11:37: fact \"value\" has multiple producers; first declared at a_more.go:2:15",
-		"rules.go:12:6: rule Other must not be variadic",
-		"rules.go:13:6: rule dependency cycle: A -> B -> A",
+		"example.com/rules: rules.go:8:5: Outputs fields must be exported",
+		"example.com/rules: rules.go:10:11: no input or rule produces fact \"sed\"",
+		"example.com/rules: rules.go:11:25: fact \"label\" has type string, expected int",
+		"example.com/rules: rules.go:11:37: fact \"value\" has multiple producers; first declared at a_more.go:2:15",
+		"example.com/rules: rules.go:12:6: rule Other must not be variadic",
+		"example.com/rules: rules.go:13:6: rule dependency cycle: A -> B -> A",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %d errors, want %d:\n%s", len(got), len(want), err)
@@ -297,7 +297,7 @@ func TestErrorLimit(t *testing.T) {
 	}
 	_, err = Generate(fixture(t, ruleset(11)))
 	got := lines(t, err)
-	if len(got) != 11 || got[10] != "too many errors" || !strings.HasPrefix(got[0], "rules.go:3:") {
+	if len(got) != 11 || got[10] != "example.com/rules: too many errors" || !strings.HasPrefix(got[0], "example.com/rules: rules.go:3:") {
 		t.Fatalf("eleven errors reported as:\n%s", err)
 	}
 }
@@ -314,6 +314,11 @@ func TestOneMistakeReportsOneError(t *testing.T) {
 		{
 			name:   "invalid tag feeds a rule",
 			source: "type Inputs struct { Seed int `fact:\"not valid\"` }; type Outputs struct { Value int `fact:\"value\"` }\nfunc Rule(seed int) (value int) { return seed }",
+			want:   "invalid fact name",
+		},
+		{
+			name:   "invalid tag on an error field",
+			source: "type Inputs struct { Failure error `fact:\"-\"` }; type Outputs struct{}",
 			want:   "invalid fact name",
 		},
 		{
@@ -334,7 +339,7 @@ func TestOneMistakeReportsOneError(t *testing.T) {
 		{
 			name:   "missing input contract",
 			source: "type Outputs struct { Value int `fact:\"value\"` }\nfunc Rule(seed int) (value int) { return seed }",
-			want:   "Inputs must name a struct type",
+			want:   "example.com/rules: Inputs must name a struct type",
 		},
 		{
 			name:   "duplicate producers do not fake a cycle",
@@ -384,6 +389,41 @@ func TestMissingFactSuggestion(t *testing.T) {
 				t.Fatalf("got %s, want suffix %s", got, want)
 			}
 		})
+	}
+}
+
+func TestSuggestionSkipsNamesInTheRuleSignature(t *testing.T) {
+	tests := []struct {
+		name, inputs, rule, want string
+	}{
+		{name: "own output", rule: "func Rule(valu int) (value int) { return 0 }"},
+		{name: "next closest fact", inputs: "`fact:\"valux\"`", rule: "func Rule(valu int) (value int) { return 0 }", want: `; did you mean "valux"?`},
+		{name: "own parameter", inputs: "`fact:\"seed\"`", rule: "func Rule(sed, seed int) (value int) { return 0 }"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			source := fmt.Sprintf("package rules\ntype Inputs struct { Field string %s }\ntype Outputs struct{}\n%s\n", test.inputs, test.rule)
+			_, err := Generate(fixture(t, source))
+			missing := lines(t, err)[0]
+			if test.want == "" && strings.Contains(missing, "did you mean") {
+				t.Fatalf("suggested a name the rule already declares: %s", missing)
+			}
+			if !strings.HasSuffix(missing, test.want) {
+				t.Fatalf("got %s, want suffix %s", missing, test.want)
+			}
+		})
+	}
+}
+
+func TestLoadErrorsNameThePackageOnce(t *testing.T) {
+	config := fixture(t, "package rules\ntype Inputs struct{}; type Outputs struct{}\nvar broken undefinedType\n")
+	_, err := Generate(config)
+	want := `load ruleset:
+# example.com/rules
+./rules.go:3:12: undefined: undefinedType
+example.com/rules: load ruleset: rules.go:3:12: undefined: undefinedType`
+	if err == nil || err.Error() != want {
+		t.Fatalf("error:\n%v\nwant:\n%s", err, want)
 	}
 }
 
@@ -500,6 +540,52 @@ func Rule(seed int) (value int) { return seed + ctx }
 	command.Env = append(os.Environ(), "GOWORK=off")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("caller failed to build: %v\n%s", err, output)
+	}
+}
+
+func TestStubsUseConfiguredContractNames(t *testing.T) {
+	config := fixture(t, `package rules
+type CustomIn struct { Seed int `+"`fact:\"seed\"`"+` }
+type CustomOut struct { Value int `+"`fact:\"value\"`"+` }
+func Rule(seed int) (value int) { return seed }
+`)
+	config.Inputs, config.Outputs = "CustomIn", "CustomOut"
+	write(t, filepath.Join(config.Dir, "caller.go"), `package rules
+import (
+    "context"
+    "github.com/vichr-vita/infergo"
+)
+var _ func(context.Context, CustomIn, infergo.Options) (CustomOut, error) = Evaluate
+`)
+	if _, err := Generate(config); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUnavailableRuntimeIsNamedWithoutTheStubs(t *testing.T) {
+	for name, vendored := range map[string]bool{"no requirement": false, "vendor tree without it": true} {
+		t.Run(name, func(t *testing.T) {
+			config := fixture(t, "package rules\ntype Inputs struct{}; type Outputs struct{}\n")
+			write(t, filepath.Join(config.Dir, "go.mod"), "module example.com/rules\n\ngo 1.26.0\n")
+			write(t, filepath.Join(config.Dir, "caller.go"), "package rules\nvar _ = Evaluate\n")
+			if vendored {
+				if err := os.Mkdir(filepath.Join(config.Dir, "vendor"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				write(t, filepath.Join(config.Dir, "vendor", "modules.txt"), "")
+			}
+			_, err := Generate(config)
+			if err == nil {
+				t.Fatal("generation succeeded")
+			}
+			got := err.Error()
+			if !strings.HasPrefix(got, "example.com/rules: load ruleset: "+runtimeUnavailable) || !strings.Contains(got, "caller.go:2:9: undefined: Evaluate") {
+				t.Fatalf("error does not name the cause and the first load's errors:\n%s", got)
+			}
+			if strings.Contains(got, config.OutputFile) || strings.Contains(got, "invalid package name") {
+				t.Fatalf("stub leaked into the diagnostic:\n%s", got)
+			}
+		})
 	}
 }
 
@@ -750,6 +836,13 @@ func TestLoadFailuresKeepTheirOwnError(t *testing.T) {
 			want:   "found packages",
 		},
 		{
+			// The parser drops this declaration, so Inputs is not in the scope.
+			name:   "syntax error in a contract file",
+			source: "package rules\ntype Outputs struct{}\n",
+			files:  map[string]string{"contracts.go": "package rules\nInputs struct{}\n"},
+			want:   "expected",
+		},
+		{
 			name:   "no buildable files",
 			source: "//go:build ignore\n\npackage rules\n" + contracts,
 			output: "zz_windows.go",
@@ -770,7 +863,7 @@ func TestLoadFailuresKeepTheirOwnError(t *testing.T) {
 				write(t, path, source)
 			}
 			_, err := Generate(config)
-			if err == nil || !strings.HasPrefix(err.Error(), "load ruleset:") || !strings.Contains(err.Error(), test.want) {
+			if err == nil || !strings.Contains(err.Error(), "load ruleset:") || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want load ruleset error with %q", err, test.want)
 			}
 		})
@@ -793,5 +886,10 @@ func TestRelativeStripsOnlyPathsInsideTheRuleset(t *testing.T) {
 		if got := c.relative(text); got != want {
 			t.Errorf("relative(%q) = %q, want %q", text, got, want)
 		}
+	}
+	// Regular expression syntax in the directory name must match literally.
+	c.dir = filepath.Join(string(filepath.Separator), "work", "rules+v1.(x)")
+	if got := c.relative(filepath.Join(c.dir, "rules.go") + ":1:2: failed"); got != "rules.go:1:2: failed" {
+		t.Errorf("relative with special characters = %q", got)
 	}
 }

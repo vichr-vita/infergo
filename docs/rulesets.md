@@ -50,11 +50,11 @@ Rule files must be non-test `.go` files in the current ruleset directory and mus
 participate in the active build. The output file must be separate. Select every
 file containing a producer you need. Files are not selected recursively.
 
-Keep non-test source in the ruleset package independent of generated APIs and
-`_infergoPlan`. Generation hides its configured output file while loading the
-package. Calls to `Evaluate` can live in tests or another package. There is one
-generated evaluator per package, and rules cannot live in the Infergo runtime
-package itself.
+Non-test source in the ruleset package can call `Evaluate` and the rest of the
+generated API. Generation hides its configured output file while loading the
+package and declares stubs with the same signatures. Keep that source independent
+of `_infergoPlan`, which has no stub. There is one generated evaluator per
+package, and rules cannot live in the Infergo runtime package itself.
 
 ## Supported signatures
 

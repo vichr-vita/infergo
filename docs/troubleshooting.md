@@ -6,10 +6,11 @@ generated code and reports failures from options, cancellation, or your rules.
 
 ## Generation fails
 
-Run the generator from the ruleset directory. It reports every declaration and
-graph error it finds in one run, up to 10, with locations relative to that
-directory. The following messages are diagnostic fragments; file names, locations,
-and fact names vary by ruleset.
+Run the generator from the ruleset directory. It reports the declaration and
+graph errors it finds in one run, up to 10. Each one starts with the Go package
+path and a location relative to that directory. Fixing them can reveal more,
+because a rejected declaration can hide a related error. The following messages
+are diagnostic fragments; file names, locations, and fact names vary by ruleset.
 
 | Message or symptom | Cause and correction |
 | --- | --- |
@@ -21,6 +22,7 @@ and fact names vary by ruleset.
 | `decode config:` | Check value types. Use a list of file names for `rules` and strings for the other settings. |
 | `read ruleset package:` | The first rule file could not be read or its package clause could not be parsed. Check the path and Go syntax. |
 | `load ruleset:` | Fix the reported Go package or dependency errors. Source may refer to the generated API, because the generator hides the configured generated file and declares stubs in its place. Everything else must type-check. |
+| `which this module cannot load` | Non-test source uses the generated API, and the module can't load the Infergo runtime that the generated code imports. Run `go get github.com/vichr-vita/infergo`, then `go mod vendor` if the module has a vendor directory. Any `undefined: Evaluate` lines that follow come from the same cause. |
 | `missing or excluded by build constraints` | Select an existing file in the active build and check build tags, `GOOS`, `GOARCH`, and `GOFLAGS`. |
 | `must be a non-test .go file` | Keep rules and output in the current ruleset directory. Avoid `_test.go` paths and do not select the output as a rule file. |
 | `is selected twice` | Remove duplicate paths from the rule selection. |
