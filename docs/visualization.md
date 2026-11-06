@@ -23,9 +23,11 @@ The initial view selects the producer of the first requested output, which is
 scrolling, use the zoom buttons, or choose **Fit map** and **Actual size**.
 With the graph focused, `+` and `-` zoom, `0` fits, and `1` restores actual size.
 Pinch zoom works with touch and trackpads. Arrow keys use native scrolling.
-The phone layout shows the selected rule, its producers, and its consumers as
-a dependency list. The same inspector appears inside the selected step. Choose
-any rule with the rule selector or search to follow another part of the graph.
+At window widths of 1100px or less, the page hides the graph and its controls
+and shows the selected rule, its producers, and its consumers as a dependency
+list. Widen the window to get the graph back. The same inspector appears inside
+the selected step. Choose any rule with the rule selector or search to follow
+another part of the graph.
 
 Search by rule name, fact name, or requirement. Search selects a matching rule
 and highlights matches. Use the rule selector to jump directly to any function.
@@ -177,11 +179,17 @@ for _, rule := range snapshot.Trace {
 }
 ```
 
-Values are captured as strings. JSON formatting preserves integer precision and
-pointer contents. Unsupported or cyclic values display their type and formatting
-error. Formatting can invoke `MarshalJSON`; keep those methods safe for
-concurrent readers. Input data must remain immutable
-until evaluation returns, as with `Evaluate`.
+Values are captured as strings. `FormatValue` uses `encoding/json`, which
+preserves integer precision and pointer contents. It also omits unexported fields
+and writes `[]byte` as base64, so a struct with only unexported fields displays
+as `{}`. Unsupported or cyclic values display their type and formatting error.
+Formatting can invoke `MarshalJSON`; keep those methods safe for concurrent
+readers. Input data must remain immutable until evaluation returns, as with
+`Evaluate`.
+
+The viewer adds thousands separators to non-negative integers, and a ` c` suffix
+when the fact name ends in `Cents` or `_cents`. A `year` of 2026 displays as
+`2,026`, while its `Snapshot` string stays `2026`.
 
 `Evaluate` does not capture or format values. Both calls use the same typed
 storage, direct rule calls, and scheduler. `Ruleset()` returns fresh metadata

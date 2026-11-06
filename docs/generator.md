@@ -182,8 +182,11 @@ that generated it.
 
 A contract whose fields are declared in another package, such as
 `type Inputs = dep.In` or `type Inputs dep.In`, gets no conversion, because those
-fields can use types the ruleset package cannot name. Field changes in that
-package do not break the build, so `--check` is the only protection for it.
+fields can use types the ruleset package cannot name. Adding a field or changing
+a tag does not break the build, so `--check` is the only protection against
+those changes. Removing or renaming a field, or retyping one that a rule uses,
+fails to compile in the generated file. Update any affected rule, then run
+`go generate`.
 
 ## Writes and failures
 
@@ -220,9 +223,10 @@ Go package load and type-check failures end the run on their own, because the
 generator cannot read the rules until the package compiles.
 
 Each declaration, graph, and load error starts with the Go package path, followed
-by a position relative to the ruleset directory, so `go generate ./...` output
-shows which package failed. A missing fact gets a suggestion when a known fact
-name is close, unless the rule's signature already declares that name:
+by a position relative to the ruleset directory when there is one, so
+`go generate ./...` output shows which package failed. A missing fact gets a
+suggestion when a known fact name is close, unless the rule's signature already
+declares that name:
 
 ```text
 infergen: example.com/rules: rules.go:5:13: no input or rule produces fact "sed"; did you mean "seed"?

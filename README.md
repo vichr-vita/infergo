@@ -97,8 +97,8 @@ is a helper. The generator connects `salaryCents` and `roleRateBps` to their
 sources and makes `baseBonusCents` available to other rules.
 
 Input and output structs map exported fields to facts with `fact` tags. Add a
-`go:generate` directive in the ruleset package, then regenerate whenever the
-graph or contracts change. Follow [Writing rulesets](docs/rulesets.md) for the
+`go:generate` directive in the ruleset package, then regenerate whenever rules
+or contracts change. Follow [Writing rulesets](docs/rulesets.md) for the
 supported signatures, mappings, and package layout.
 
 ## Configure the generator

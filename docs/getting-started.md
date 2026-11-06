@@ -95,6 +95,8 @@ This writes `score/zz_infergo_gen.go` and prints one line to standard error:
 infergen: example.com/infergo-demo/score: updated zz_infergo_gen.go (2 rules)
 ```
 
+> On v0.1.1, this run [prints nothing](generator.md#v011-differences).
+
 A run that changes nothing prints nothing. The generated file declares:
 
 ```go
@@ -202,7 +204,7 @@ go generate ./score
 
 The `-race` flag needs cgo and a C toolchain, so leave it out if you do not have
 them. The second command confirms that generation still works after
-`go mod tidy`. It prints nothing, because the generated file is already current.
+`go mod tidy`. It prints nothing when the generated file is already current.
 
 The two rules form a chain, so increasing `MaxParallel` cannot make them run
 simultaneously. Parallelism helps only when the graph has independent work.

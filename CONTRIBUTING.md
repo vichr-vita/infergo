@@ -147,6 +147,9 @@ Update examples and troubleshooting entries with behavior changes. Check links
 when moving pages or renaming headings. Use Markdown that remains readable in
 the repository; a documentation site is not required to use these guides.
 
+When you cut a release, update or remove the v0.1.1 notes.
+`grep -rn 'v0\.1\.1' README.md docs` finds them.
+
 ## Submit changes
 
 Existing commit subjects use conventional prefixes such as `feat:`. Keep change
