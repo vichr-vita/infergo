@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func commandFixture(t *testing.T) {
@@ -199,7 +201,7 @@ func TestCheckMode(t *testing.T) {
 			prepare: func(t *testing.T) {
 				write(t, "extra.go", "package rules\nfunc Finish(seed int) (value int) { return seed + 1 }\n")
 			},
-			want: "zz_infergo_gen.go is out of date; run go generate",
+			want: "example.com/rules: zz_infergo_gen.go is out of date; run go generate",
 		},
 		{
 			name: "missing",
@@ -208,7 +210,7 @@ func TestCheckMode(t *testing.T) {
 					t.Fatal(err)
 				}
 			},
-			want: "zz_infergo_gen.go is missing; run go generate",
+			want: "example.com/rules: zz_infergo_gen.go is missing; run go generate",
 		},
 	}
 	for _, trigger := range triggers {
@@ -247,7 +249,114 @@ func TestCheckMode(t *testing.T) {
 	}
 }
 
-func TestCheckModeIgnoresLineEndings(t *testing.T) {
+// execute runs the command and returns what it printed to standard error.
+func execute(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	var stderr bytes.Buffer
+	command := newCommand()
+	command.SetErr(&stderr)
+	command.SetArgs(args)
+	err := command.Execute()
+	return stderr.String(), err
+}
+
+func TestUpdateLine(t *testing.T) {
+	commandFixture(t)
+	args := []string{"--rules", "rules.go,extra.go"}
+	const updated = "infergen: example.com/rules: updated zz_infergo_gen.go (2 rules)\n"
+	if stderr, err := execute(t, args...); err != nil || stderr != updated {
+		t.Fatalf("first run: %q, error %v", stderr, err)
+	}
+	first, err := os.Stat("zz_infergo_gen.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := first.ModTime().Add(-time.Hour)
+	if err := os.Chtimes("zz_infergo_gen.go", old, old); err != nil {
+		t.Fatal(err)
+	}
+	if stderr, err := execute(t, args...); err != nil || stderr != "" {
+		t.Fatalf("no-op run: %q, error %v", stderr, err)
+	}
+	second, err := os.Stat("zz_infergo_gen.go")
+	if err != nil || !second.ModTime().Equal(old) {
+		t.Fatalf("no-op run rewrote the file: %v, error %v", second.ModTime(), err)
+	}
+	// This rewires Finish to another int fact without changing a contract.
+	write(t, "extra.go", "package rules\nfunc Finish(seed int) (value int) { return seed }\n")
+	stderr, err := execute(t, args...)
+	if err != nil || !strings.Contains(stderr, "infergen: example.com/rules: updated zz_infergo_gen.go (1 rule)\n") {
+		t.Fatalf("rewiring run: %q, error %v", stderr, err)
+	}
+}
+
+func TestWarningsKeepSuccessfulExit(t *testing.T) {
+	commandFixture(t)
+	args := []string{"--rules", "rules.go,extra.go"}
+	write(t, "rules.go", `package rules
+type Inputs struct {
+    Seed int `+"`fact:\"seed\"`"+`
+    Unused int `+"`fact:\"unused\"`"+`
+}
+type Outputs struct { Value int `+"`fact:\"value\"`"+` }
+func Step(seed int) (middle int) { return seed + 1 }
+func Orphan(seed int) (extra int) { return seed }
+`)
+	warnings := []string{
+		`infergen: example.com/rules: warning: rules.go:4:5: input fact "unused" is not used by any output or retained rule`,
+		"infergen: example.com/rules: warning: rules.go:8:6: rule Orphan is not needed by any output and was left out",
+	}
+	stderr, err := execute(t, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range append(warnings, "infergen: example.com/rules: updated") {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("generate output %q lacks %q", stderr, want)
+		}
+	}
+	stderr, err = execute(t, append(args, "--check")...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stderr, "updated") {
+		t.Errorf("check mode claimed an update: %q", stderr)
+	}
+	for _, want := range warnings {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("check output %q lacks %q", stderr, want)
+		}
+	}
+}
+
+func TestPrintErrorPrefixesEveryReportedError(t *testing.T) {
+	commandFixture(t)
+	write(t, "rules.go", `package rules
+type Inputs struct { Seed int `+"`fact:\"seed\"`"+` }
+type Outputs struct { Value int `+"`fact:\"value\"`"+` }
+func Step(sed int) (middle int) { return sed }
+func Other(sed int) (other int) { return sed }
+`)
+	_, err := execute(t, "--rules", "rules.go,extra.go")
+	if err == nil {
+		t.Fatal("generation succeeded")
+	}
+	var report bytes.Buffer
+	printError(&report, err)
+	want := `infergen: example.com/rules: rules.go:4:11: no input or rule produces fact "sed"; did you mean "seed"?
+infergen: example.com/rules: rules.go:5:12: no input or rule produces fact "sed"; did you mean "seed"?
+`
+	if report.String() != want {
+		t.Fatalf("report:\n%s\nwant:\n%s", &report, want)
+	}
+	report.Reset()
+	printError(&report, errors.New("single"))
+	if report.String() != "infergen: single\n" {
+		t.Fatalf("report: %q", &report)
+	}
+}
+
+func TestLineEndingsDoNotCountAsChanges(t *testing.T) {
 	commandFixture(t)
 	write(t, "rules.go", strings.ReplaceAll(`package rules
 type Inputs struct { Seed int }
@@ -265,12 +374,48 @@ func Rule(Seed int) (value int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, "zz_infergo_gen.go", strings.ReplaceAll(string(source), "\n", "\r\n"))
+	crlf := strings.ReplaceAll(string(source), "\n", "\r\n")
+	write(t, "zz_infergo_gen.go", crlf)
 
 	check := newCommand()
 	check.SetArgs([]string{"--rules", "rules.go", "--check"})
 	if err := check.Execute(); err != nil {
 		t.Fatal(err)
+	}
+	if stderr, err := execute(t, "--rules", "rules.go"); err != nil || stderr != "" {
+		t.Fatalf("write run on a CRLF checkout: %q, error %v", stderr, err)
+	}
+	if after, err := os.ReadFile("zz_infergo_gen.go"); err != nil || string(after) != crlf {
+		t.Fatalf("write run changed a current file: error %v", err)
+	}
+}
+
+func TestUnreadableOutputIsReplaced(t *testing.T) {
+	commandFixture(t)
+	write(t, "zz_infergo_gen.go", "old\n")
+	if err := os.Chmod("zz_infergo_gen.go", 0); err != nil {
+		t.Fatal(err)
+	}
+	stderr, err := execute(t, "--rules", "rules.go,extra.go")
+	if err != nil || !strings.Contains(stderr, "updated zz_infergo_gen.go") {
+		t.Fatalf("output %q, error %v", stderr, err)
+	}
+	if source, err := os.ReadFile("zz_infergo_gen.go"); err != nil || !bytes.Contains(source, []byte("Code generated by infergen")) {
+		t.Fatalf("output was not replaced: %q, error %v", source, err)
+	}
+}
+
+func TestWriteFileReportsFailedReplacement(t *testing.T) {
+	t.Chdir(t.TempDir())
+	// A directory cannot be read as a file and cannot be renamed over.
+	if err := os.Mkdir("out.go", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeFile("out.go", []byte("package rules\n")); err == nil {
+		t.Fatal("writeFile succeeded")
+	}
+	if temporary, err := filepath.Glob(".infergen-*"); err != nil || len(temporary) != 0 {
+		t.Fatalf("temporary files left behind: %v, error %v", temporary, err)
 	}
 }
 

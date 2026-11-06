@@ -130,10 +130,12 @@ which source files the loader sees. A selected file excluded by build constraint
 is an error. There is no dedicated `--tags` option; use the Go build environment,
 such as `GOFLAGS`, when needed.
 
-The loader overlays the configured generated file with a package-only source
-file. This lets it regenerate absent or stale output. All remaining non-test
-package source must type-check without the generated declarations. Keep callers
-of `Evaluate` in another package or in tests.
+The loader replaces the configured generated file with a package-only source
+file, so it can regenerate absent or stale output. If the package doesn't
+type-check that way, the loader tries again with stubs of `Evaluate`,
+`EvaluateTrace`, `Ruleset`, `ViewerCase`, and `ExportHTML` in that file. This lets
+non-test files in the ruleset package call the generated API. They must call it
+correctly, because the stubs have the same signatures as the generated code.
 
 ## Generated declarations
 
@@ -178,15 +180,68 @@ package do not break the build, so `--check` is the only protection for it.
 
 ## Writes and failures
 
-On success, the CLI writes a temporary file in the output directory, sets its
-mode to `0644`, closes it, and renames it over the destination. It prints no
-success message. The destination is replaced, so choose a file reserved for
-generated code. With `--check`, the CLI compares instead and writes nothing.
+When the generated source differs from the existing output, the CLI writes a
+temporary file in the output directory, sets its mode to `0644`, closes it, and
+renames it over the destination. It then prints one line to standard error:
+
+```text
+infergen: example.com/rules: updated zz_infergo_gen.go (4 rules)
+```
+
+If the content already matches, the CLI leaves the file alone and prints no such
+line, so a generation that changes nothing is quiet. CRLF line endings in the
+existing file don't count as a difference, here or with `--check`. A file the CLI
+can't read counts as different, so it gets replaced. The destination is replaced,
+so choose a file reserved for generated code. With `--check`, the CLI compares
+instead and writes nothing.
 
 Generation or temporary-write failures leave an existing output untouched.
 Errors go to standard error with an `infergen:` prefix, and the process exits
-with status 1. Many declaration errors include source locations; config and path
-errors may not. See [Troubleshooting](troubleshooting.md).
+with status 1. One run reports declaration and graph errors together in source
+order. After 10 errors it prints `too many errors` and stops, as the Go compiler
+does. A rejected declaration can hide a related error until you fix it. For
+example, a rule with an unnamed `int` result hides a missing `typo int` parameter,
+because that parameter might be meant to read the result. The run still fails,
+and the next run reports what remains. Go package load and type-check failures
+end the run on their own, because the rules can't be read until the package
+compiles.
+
+Each declaration, graph, and load error starts with the Go package path, followed
+by a position relative to the ruleset directory, so `go generate ./...` output
+shows which package failed. A missing fact gets a suggestion when a known fact
+name is close, unless the rule's signature already declares that name:
+
+```text
+infergen: example.com/rules: rules.go:5:13: no input or rule produces fact "sed"; did you mean "seed"?
+```
+
+A compiler error block has no prefix of its own, because its `# <package>` heading
+already names the package:
+
+```text
+infergen: load ruleset:
+# example.com/rules
+./rules.go:3:12: undefined: undefinedType
+infergen: example.com/rules: load ruleset: rules.go:3:12: undefined: undefinedType
+```
+
+A position in a file outside the ruleset directory stays absolute, for example
+when a contract field is declared in another package. Errors from before the
+package loads, such as config and path errors, have no package prefix and may have
+no position. One of them, `read ruleset package:`, prints the rule file's absolute
+path.
+
+A successful run can also print warnings to standard error. Warnings never change
+the exit status, and `--check` prints them too:
+
+```text
+infergen: example.com/rules: warning: rules.go:4:2: input fact "region" is not used by any output or retained rule
+infergen: example.com/rules: warning: rules.go:12:6: rule Orphan is not needed by any output and was left out
+```
+
+An input counts as unused when no retained rule consumes it and no output reads
+it directly, so an input read only by a pruned rule gets a warning as well. See
+[Troubleshooting](troubleshooting.md).
 
 ## Keep generation reproducible
 
@@ -219,6 +274,7 @@ The environment variable reaches every `infergen` process that `go generate`
 starts, so each package keeps its directive unchanged. `--check` does the same
 for a single run. Each process generates as usual, compares the result with the
 existing output file, and writes nothing. It exits silently when the file is
-current. When the file differs or is missing, it exits with status 1 and an error
-that names the file and tells the reader to run `go generate`. The [development
+current, apart from any warnings. When the file differs or is missing, it exits
+with status 1 and an error that names the Go package and the file and tells the
+reader to run `go generate`. The [development
 guide](../CONTRIBUTING.md#verify-a-change) gives commands for this repository.

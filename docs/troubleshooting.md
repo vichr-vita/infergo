@@ -6,9 +6,11 @@ generated code and reports failures from options, cancellation, or your rules.
 
 ## Generation fails
 
-Run the generator from the ruleset directory and inspect the first relevant
-source location in its error. The following messages are diagnostic fragments;
-file names, locations, and fact names vary by ruleset.
+Run the generator from the ruleset directory. It reports the declaration and
+graph errors it finds in one run, up to 10. Each one starts with the Go package
+path and a location relative to that directory. Fixing them can reveal more,
+because a rejected declaration can hide a related error. The following messages
+are diagnostic fragments; file names, locations, and fact names vary by ruleset.
 
 | Message or symptom | Cause and correction |
 | --- | --- |
@@ -19,7 +21,8 @@ file names, locations, and fact names vary by ruleset.
 | `read config:` | Check the selected path, file permissions, extension, and syntax. An explicit config file must exist. |
 | `decode config:` | Check value types. Use a list of file names for `rules` and strings for the other settings. |
 | `read ruleset package:` | The first rule file could not be read or its package clause could not be parsed. Check the path and Go syntax. |
-| `load ruleset:` | Fix the reported Go package or dependency errors. Source must type-check with the configured generated file excluded. |
+| `load ruleset:` | Fix the reported Go package or dependency errors. Source may refer to the generated API, because the generator hides the configured generated file and declares stubs in its place. Everything else must type-check. |
+| `which this module cannot load` | Non-test source uses the generated API, and the module can't load the Infergo runtime that the generated code imports. Run `go get github.com/vichr-vita/infergo`, then `go mod vendor` if the module has a vendor directory. Any `undefined: Evaluate` lines that follow come from the same cause. |
 | `missing or excluded by build constraints` | Select an existing file in the active build and check build tags, `GOOS`, `GOARCH`, and `GOFLAGS`. |
 | `must be a non-test .go file` | Keep rules and output in the current ruleset directory. Avoid `_test.go` paths and do not select the output as a rule file. |
 | `is selected twice` | Remove duplicate paths from the rule selection. |
@@ -34,10 +37,11 @@ file names, locations, and fact names vary by ruleset.
 | `must place context.Context first` or `must place error last` | Move execution-control values to their supported positions. |
 | `must produce at least one named fact` | Add an ordinary named result or move the function out of the selected rules. Error-only functions cannot be rules. |
 | `must not be variadic or generic` | Use a non-generic rule with fixed parameters, and keep generic or variadic helpers outside rule selection. |
-| `no input or rule produces fact` | Check spelling and case, input tags, and selection of the producer's file. |
+| `no input or rule produces fact` | Check spelling and case, input tags, and selection of the producer's file. A trailing `did you mean` names the closest known fact, if one is close. |
 | `has multiple producers` | Keep one source for the fact. An external input also counts as a producer. |
 | `has type ..., expected ...` | Use identical types at the producer, consumers, and contract fields. Defined types differ from their underlying types. |
 | `rule dependency cycle` | Break the reported producer cycle. A rule cannot consume its own output fact. |
+| `too many errors` | The run stopped reporting after 10 errors. Fix those and run the generator again. |
 | `is reserved for generated code` | Rename the conflicting declaration. The generator reserves `Evaluate`, `EvaluateTrace`, `Ruleset`, `ViewerCase`, `ExportHTML`, and `_infergoPlan`. Remove an obsolete generated file only after checking it contains no hand-written code. |
 | `rules must be in a separate package` | Move rules out of the `github.com/vichr-vita/infergo` runtime package. |
 
@@ -65,19 +69,19 @@ while the package does not compile.
 Renamed rule parameters and changed `fact` tags compile without any error and
 keep the old wiring. To find them, run `INFERGEN_CHECK=true go generate ./...`,
 which writes nothing. A stale package fails with
-`zz_infergo_gen.go is out of date; run go generate`, or `is missing` when there
-is no output file. The `running "go": exit status 1` line that follows gives the
-location of the package's directive. See [Keep generation
+`example.com/rules: zz_infergo_gen.go is out of date; run go generate`, or
+`is missing` when there is no output file. The `running "go": exit status 1` line
+that follows gives the location of the package's directive. See [Keep generation
 reproducible](generator.md#keep-generation-reproducible).
 
 The generator ignores only the output path configured for this invocation. If
 you changed `--out`, an old generated file may still define `Evaluate` and
 `_infergoPlan`. Review and remove the obsolete generated file, then regenerate.
 
-If a non-test file in the ruleset calls `Evaluate`, generation can fail with
-`undefined: Evaluate` because loading deliberately hides the generated file.
-Move that caller into another package or a test file. Leave contracts, rule
-functions, and helpers compilable on their own.
+A non-test file in the ruleset can call `Evaluate` and the rest of the generated
+API. The generator hides the generated file while loading and declares stubs with
+the same signatures in its place. A call that doesn't match those signatures
+fails as `load ruleset:`, as it would in `go build`.
 
 For missing module checksum entries when running the generator, record it as a
 tool dependency of your application's module with
@@ -106,7 +110,16 @@ output contract does not hide invalid selected rules.
 ## A rule does not run
 
 First check whether any requested output depends on it. Unneeded rules do not
-appear in the evaluator. If the rule is included, check for an upstream failure
+appear in the evaluator, and the generator warns about each one:
+
+```text
+infergen: example.com/rules: warning: rules.go:12:6: rule Orphan is not needed by any output and was left out
+```
+
+To keep the rule, consume its fact in a retained rule or add the fact to the
+output contract. A matching warning, `input fact "region" is not used`, means the
+same thing for an input. Warnings don't fail generation or `--check`. If the rule
+is included, check for an upstream failure
 or cancellation. Inspect the generated plan and direct calls when necessary.
 
 A nil, false, or zero input does not suppress execution. If your application
@@ -121,7 +134,10 @@ to match the underlying cause. A negative `MaxParallel` fails before any work.
 
 If `err` is nil, zero and nil output fields may be legitimate results. Test the
 underlying rule directly and confirm the output field maps to the intended
-fact. With concurrent failures, the observed rule name can vary between runs.
+fact. A stale evaluator can also leave outputs unexpectedly empty, because it keeps
+the wiring from its last generation. `INFERGEN_CHECK=true go generate ./...` shows
+whether that is the cause. With concurrent failures, the observed rule name can
+vary between runs.
 
 ## Cancellation does not return promptly
 
