@@ -280,12 +280,13 @@ func Total(seed int) (total int) { return seed + 1 }
 	}
 	regenerate()
 
-	write(t, rules, contract+`type Outputs struct {
-    Total int `+"`fact:\"total\"`"+`
-    Bonus int `+"`fact:\"bonus\"`"+`
+	outputs := `type Outputs struct {
+    Total int ` + "`fact:\"total\"`" + `
+    Bonus int ` + "`fact:\"bonus\"`" + `
 }
 func Bonus(total int) (bonus int) { return total * 2 }
-`)
+`
+	write(t, rules, contract+outputs)
 	result, err := build()
 	if err == nil {
 		t.Fatal("stale evaluator compiled")
@@ -295,18 +296,8 @@ func Bonus(total int) (bonus int) { return total * 2 }
 	}
 	regenerate()
 
-	write(t, rules, contract+`type Outputs struct {
-    Total int `+"`fact:\"total\"`"+`
-    Bonus int `+"`fact:\"bonus\"`"+`
-}
-func Bonus(total int) (bonus int) { return total * 2 }
-type Region struct{}
-`)
-	source, err := os.ReadFile(rules)
-	if err != nil {
-		t.Fatal(err)
-	}
-	write(t, rules, strings.Replace(string(source), "type Inputs struct {", "type Inputs struct {\n    Region Region `fact:\"region\"`", 1))
+	changed := strings.Replace(contract, "type Inputs struct {", "type Inputs struct {\n    Region string `fact:\"region\"`", 1)
+	write(t, rules, changed+outputs)
 	result, err = build()
 	if err == nil {
 		t.Fatal("stale evaluator compiled after an input changed")
