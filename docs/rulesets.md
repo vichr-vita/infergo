@@ -70,9 +70,10 @@ Infergo runtime package itself.
 | Generic or variadic function | Rejected as a rule. |
 
 Every rule must produce at least one named ordinary fact. Fact parameters and
-results cannot use `_` as their name. The special context parameter and trailing
-error result do not need fact names. If you name the error, that name does not
-join the graph.
+results cannot use `_` as their name. Go does not let named and unnamed
+parameters or results mix, so a rule with named results must name its trailing
+error, and a rule with fact parameters must name its context. Either name can be
+`_`, and neither joins the graph.
 
 The built-in `error` and `context.Context` types are reserved for execution
 control, including aliases of those types. An error cannot be an input fact; a

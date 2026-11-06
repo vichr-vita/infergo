@@ -14,10 +14,7 @@ formats each value as a string.
 Infergo is pre-1.0, so its API and generated code can change between releases.
 Regenerate your evaluators after every upgrade.
 
-> These docs track `main`. The latest release, v0.1.1, lacks `infergen view`,
-> `--check`, `PanicError`, and more. See the [version
-> note](docs/generator.md#run-the-generator) for the list and how to install
-> `main`.
+> These docs track `main`, and [v0.1.1 differs](docs/generator.md#v011-differences).
 
 ## Documentation
 

@@ -15,15 +15,19 @@ are diagnostic fragments; file names, locations, and fact names vary by ruleset.
 | Message or symptom | Cause and correction |
 | --- | --- |
 | `no such tool "infergen"` | In your module, run `go get -tool github.com/vichr-vita/infergo/cmd/infergen`. The Infergo repository has no tool dependency, so use `go run ./cmd/infergen` from its root or `go run ../../cmd/infergen` from `ruleset/bonus`. |
+| `missing go.sum entry` | Run `go mod tidy`. `go mod download` alone does not record the generator's dependencies. If `go.mod` has no `tool` line for `infergen`, first run `go get -tool github.com/vichr-vita/infergo/cmd/infergen`. Unlike a plain `go get` of the command package, a tool dependency survives `go mod tidy`. |
 | `rule files are required` | Supply `--rules`, `INFERGEN_RULES`, or a `rules` entry in a configuration file. There is no default rule file. |
 | `rule file names must not be empty` | Remove blank entries, including a trailing comma or whitespace-only file name. |
+| `unknown command "view"` or `unknown flag: --check` | The module uses v0.1.1, which lacks them. [Install `main`](generator.md#v011-differences). |
 | `unknown flag` or `unknown shorthand flag` | Use the flags listed by `--help`. Long flags require two dashes. |
 | `unknown command` or unexpected positional arguments | Pass file names through `--rules`, not as standalone arguments. |
 | `read config:` | Check the selected path, file permissions, extension, and syntax. An explicit config file must exist. |
-| `decode config:` | Check value types. Use a list of file names for `rules` and strings for the other settings. |
+| `decode config:` | Check value types. Use a list of file names for `rules`, a boolean for `check`, and strings for the other settings. The value can come from an `INFERGEN_` variable. |
 | `read ruleset package:` | The first rule file could not be read or its package clause could not be parsed. Check the path and Go syntax. |
 | `load ruleset:` | Fix the reported Go package or dependency errors. Source may call the generated API through [stubs](generator.md#file-paths-and-package-loading), and those calls must match the generated signatures. Everything else must type-check. A parameter and a result cannot share a name, so `redeclared in this block` means a rule tried to consume its own output. |
-| `which this module cannot load` | Non-test source uses the generated API, and the module can't load the Infergo runtime that the generated code imports. Run `go get github.com/vichr-vita/infergo`, then `go mod vendor` if the module has a vendor directory. Any `undefined: Evaluate` lines that follow come from the same cause. |
+| `missing parameter type` or `missing parameter name` | Go does not let named and unnamed results or parameters mix. Name the trailing error and the context parameter, or use `_`. |
+| `undefined: Evaluate` while generating on v0.1.1 | That release cannot load source that calls the generated API. Move the call into a test file or another package, or [install `main`](generator.md#v011-differences). |
+| `which this module cannot load` | Non-test source uses the generated API, and the module cannot load the Infergo runtime that the generated code imports. Run `go get github.com/vichr-vita/infergo`, then `go mod vendor` if the module has a vendor directory. Any `undefined: Evaluate` lines that follow come from the same cause. |
 | `missing or excluded by build constraints` | Select an existing file in the active build and check build tags, `GOOS`, `GOARCH`, and `GOFLAGS`. |
 | `must be a non-test .go file` | Keep rules and output in the current ruleset directory. Avoid `_test.go` paths and do not select the output as a rule file. |
 | `is selected twice` | Remove duplicate paths from the rule selection. |
@@ -80,14 +84,6 @@ The generator ignores only the output path configured for this invocation. If
 you changed `--out`, an old generated file may still define `Evaluate` and
 `_infergoPlan`. Review and remove the obsolete generated file, then regenerate.
 
-For missing module checksum entries when running the generator, record it as a
-tool dependency of your application's module with
-`go get -tool github.com/vichr-vita/infergo/cmd/infergen` and run it with
-`go tool infergen`. Unlike a plain `go get` of the command package, a tool
-dependency survives `go mod tidy`. Review the resulting module changes. The
-command and generated runtime should use the same selected Infergo module
-version.
-
 ### `undefined: Evaluate` or `undefined: score.Evaluate` before the first generation
 
 If `go build ./...` reports `undefined: score.Evaluate` (a caller in another
@@ -132,9 +128,9 @@ infergen: example.com/rules: warning: rules.go:12:6: rule Orphan is not needed b
 
 To keep the rule, consume its fact in a retained rule or add the fact to the
 output contract. A matching warning, `input fact "region" is not used`, means the
-same thing for an input. Warnings don't fail generation or `--check`. If the rule
-is included, check for an upstream failure
-or cancellation. Inspect the generated plan and direct calls when necessary.
+same thing for an input. Warnings do not fail generation or `--check`. If the
+rule is included, check for an upstream failure or cancellation. Inspect the
+generated plan and direct calls when necessary.
 
 A nil, false, or zero input does not suppress execution. If your application
 expects value-based branching, handle the condition inside a rule or select a
@@ -173,14 +169,17 @@ not kill goroutines.
 
 ## A rule panics
 
+> On v0.1.1, a parallel rule panic [crashes the process](generator.md#v011-differences).
+
 Put `recover` on the goroutine that calls `Evaluate`. The recovered value is an
 `*infergo.PanicError` at every `MaxParallel`. Its `Rule` field names the rule,
 `Value` holds the original panic value, and `Stack` shows where the panic
 happened. If existing code compares the recovered value directly, read `Value`
 or use `errors.Is`.
 
-If the rule panicked in a deferred function during `runtime.Goexit`, for example
-after `t.FailNow`, sequential execution ends the goroutine after `recover`.
+Sequential execution has one exception. If a rule's deferred function panics
+during `runtime.Goexit`, for example after `t.FailNow`, the goroutine exits after
+`recover`.
 
 The panic reaches the caller only after started rules return, so a rule that
 ignores cancellation delays it. `EvaluateTrace` and `ExportHTML` panic the same

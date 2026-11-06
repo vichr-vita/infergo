@@ -133,6 +133,8 @@ generated fact storage are not rolled back, whether a rule fails or panics.
 
 ## Rule panics
 
+> On v0.1.1, a parallel rule panic [crashes the process](generator.md#v011-differences).
+
 A panic in a rule stays a panic. It does not become a returned error or a
 `RuleError`. At every `MaxParallel` value, it surfaces on the goroutine that
 called `Evaluate` or `Run`, so a `recover` there behaves the same in sequential
@@ -156,8 +158,8 @@ clients. Code that compares a recovered value directly must read `Value` or use
 
 Go turns `panic(nil)` into a `*runtime.PanicNilError`, which `Value` then holds.
 Under `GODEBUG=panicnil=1`, `Value` is nil, and the panic still stops evaluation
-and reaches the caller. The one exception is `panic(nil)` raised during a
-`runtime.Goexit` under that setting, which Go cannot distinguish from a plain
+and reaches the caller. The one exception is `panic(nil)` during a
+`runtime.Goexit` under that setting. Go cannot distinguish it from a plain
 `Goexit`, so the caller sees the `Goexit` behavior described below.
 
 This handler logs a rule panic and passes any other panic along:
@@ -187,14 +189,14 @@ scheduler observed one of those first.
 no HTML, so a panicking case stops the whole export.
 
 A rule that calls `runtime.Goexit`, for example through `t.FailNow`, gets the
-same cleanup. The goroutine that called `Evaluate` or `Run` then exits, as it
-would in sequential execution, unless a rule panicked.
+same cleanup. The goroutine that called `Evaluate` or `Run` then exits at every
+`MaxParallel`, unless a rule panicked.
 
 If a deferred function panics during that `Goexit`, the caller still receives a
-`*PanicError`. Sequential execution runs rules on the caller's goroutine, so Go
-resumes the `Goexit` after the function that recovered finishes, and the
-goroutine exits. In parallel execution, the `Goexit` ends on a worker and the
-caller continues normally after `recover`.
+`*PanicError`. What happens after `recover` depends on where the rule ran. In
+sequential execution it ran on the caller's goroutine, so Go resumes the
+`Goexit` when the function that recovered finishes, and the goroutine exits. In
+parallel execution it ran on a worker, so the caller continues normally.
 
 ## Rule and NewPlan
 

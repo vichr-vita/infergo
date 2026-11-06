@@ -24,10 +24,7 @@ The `go get -tool` command adds the Infergo module to `go.mod` and records
 executable. The generation directive below runs it with `go tool infergen` at
 the version recorded in your module, and `go mod tidy` keeps the entry.
 
-> These docs track `main`. This tutorial also works on the latest release,
-> v0.1.1, except that v0.1.1 prints no `updated` line. The [version
-> note](generator.md#run-the-generator) lists what else v0.1.1 lacks and how to
-> install `main`.
+> This installs v0.1.1, which needs Go 1.26.4. See [what differs](generator.md#v011-differences).
 
 If you are working on a local Infergo checkout, use the [local replacement
 workflow](../CONTRIBUTING.md#use-a-local-checkout-from-another-module) instead of

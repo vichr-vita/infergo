@@ -54,6 +54,11 @@ npx playwright install chromium webkit
 make test-ui
 ```
 
+Linux hosts may also need the browsers' system libraries. CI installs them with
+`npx playwright install --with-deps chromium webkit`, which asks for `sudo`.
+Where Playwright cannot install them, `npx playwright test --project=chromium`
+runs the Chromium half, and CI still covers WebKit.
+
 The CI workflow runs `make check` and `make test-ui`, which test the HTML viewer
 in Chromium and WebKit, including narrow mobile widths. Follow the [viewer
 development instructions](docs/visualization.md#maintain-the-viewer) when changing

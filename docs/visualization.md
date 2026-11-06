@@ -35,6 +35,8 @@ requires access to the same exported HTML file.
 
 ## Open your own graph
 
+> [v0.1.1 has no `view` command](generator.md#v011-differences).
+
 Run this from your ruleset directory:
 
 ```sh
@@ -54,7 +56,7 @@ The page goes to `infergo-<package>-<hash>.html` in the system temporary
 directory, and the command prints that path. The hash comes from the ruleset
 directory, so same-named packages keep separate pages. Use `--html` to choose
 another `.html` or `.htm` file. The command replaces only topology pages, so it
-won't overwrite a scenario report from `ExportHTML`. See the
+will not overwrite a scenario report from `ExportHTML`. See the
 [generator reference](generator.md#view-the-rule-graph) for every option.
 
 ## Export your own scenarios
@@ -204,8 +206,8 @@ type ViewerCase = infergo.ViewerCase[Inputs]
 ```
 
 `title` sets the page heading and the browser tab. The `infergo` package defines
-the types behind them. These structs and the snapshot structs also have `json`
-tags:
+the types behind them. `Ruleset`, `RuleSpec`, `FactSpec`, and the snapshot structs
+also have `json` tags, but `ViewerCase` does not:
 
 ```go
 type ViewerCase[I any] struct {
@@ -271,6 +273,9 @@ npm run build:viewer
 npx playwright install chromium webkit
 npm run test:ui
 ```
+
+Linux hosts may need more for WebKit, as the [development
+guide](../CONTRIBUTING.md#verify-a-change) explains.
 
 CI checks that the bundle is current and runs Playwright in Chromium and WebKit,
 including 320px and 390px portrait widths and a 667px landscape width. Tests cover
