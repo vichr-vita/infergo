@@ -17,9 +17,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run check:viewer
-      - run: INFERGEN_CHECK=true go generate ./...
-      - run: go test -race ./...
-      - run: go vet ./...
+      - run: make check
       - run: npx playwright install --with-deps chromium webkit
-      - run: npm run test:ui
+      - run: make test-ui
