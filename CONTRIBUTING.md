@@ -8,8 +8,8 @@ GNU Make.
 
 ## Set up a checkout
 
-Install Go 1.26.0 or later. The race detector also needs a supported Go platform
-and the platform's C toolchain.
+Install Go 1.26.0 or later, GNU Make, and Node 22, the version CI uses. The race
+detector also needs a supported Go platform and the platform's C toolchain.
 
 From a checkout, install the viewer's Node dependencies and run every check
 that does not need a browser:
@@ -20,7 +20,7 @@ make check
 ```
 
 A change that touches only Go code can skip Node. Run `make check-go` instead,
-which needs only Go.
+which needs only Go and Make.
 
 Generation rewrites the committed bonus evaluator from its declarations. It
 does not contact a database or application service. Package loading and module
