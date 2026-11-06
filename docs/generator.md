@@ -69,7 +69,7 @@ outputs: Outputs
 out: zz_infergo_gen.go
 ```
 
-Then run `infergen` with no flags. Only `rules` is required when using the default
+Then run `go tool infergen` with no flags. Only `rules` is required when using the default
 contract names and output file.
 
 To select a file elsewhere:
