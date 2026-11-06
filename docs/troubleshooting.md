@@ -59,11 +59,22 @@ If a non-test file in the ruleset calls `Evaluate`, generation can fail with
 Move that caller into another package or a test file. Leave contracts, rule
 functions, and helpers compilable on their own.
 
-For missing module checksum entries when running the generator, add its package
-dependency from your application's module with
-`go get github.com/vichr-vita/infergo/cmd/infergen`. Review the resulting module
-changes. The command and generated runtime should use the same selected Infergo
-module version.
+For missing module checksum entries when running the generator, record it as a
+tool dependency of your application's module with
+`go get -tool github.com/vichr-vita/infergo/cmd/infergen` and run it with
+`go tool infergen`. Unlike a plain `go get` of the command package, a tool
+dependency survives `go mod tidy`. Review the resulting module changes. The
+command and generated runtime should use the same selected Infergo module
+version.
+
+### `undefined: Evaluate` or `undefined: score.Evaluate` before the first generation
+
+If `go build ./...` reports `undefined: score.Evaluate` (a caller in another
+package) or `go vet` or `go test` reports `undefined: Evaluate` (a test file in
+the ruleset package), and the generated file does not exist yet, `go generate`
+has not run. Run `go generate ./...` from the module root, then build again.
+`go build` on the ruleset package alone succeeds, because nothing in it calls
+`Evaluate`.
 
 ## An unused rule fails generation
 

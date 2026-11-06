@@ -20,7 +20,7 @@ func commandFixture(t *testing.T) {
 	for _, key := range []string{"CONFIG", "RULES", "INPUTS", "OUTPUTS", "OUT"} {
 		t.Setenv("INFERGEN_"+key, "")
 	}
-	write(t, "go.mod", fmt.Sprintf("module example.com/rules\n\ngo 1.26.4\n\nrequire github.com/vichr-vita/infergo v0.0.0\nreplace github.com/vichr-vita/infergo => %q\n", root))
+	write(t, "go.mod", fmt.Sprintf("module example.com/rules\n\ngo 1.26.0\n\nrequire github.com/vichr-vita/infergo v0.0.0\nreplace github.com/vichr-vita/infergo => %q\n", root))
 	write(t, "rules.go", `package rules
 type Inputs struct { Seed int `+"`fact:\"seed\"`"+` }
 type Outputs struct { Value int `+"`fact:\"value\"`"+` }

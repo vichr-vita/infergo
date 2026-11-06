@@ -7,7 +7,7 @@ build tool.
 
 ## Set up a checkout
 
-Install Go 1.26.4 or later. The race detector also needs a supported Go platform
+Install Go 1.26.0 or later. The race detector also needs a supported Go platform
 and the platform's C toolchain.
 
 From a checkout, run:
@@ -75,10 +75,10 @@ the dependency path. Substitute your checkout's absolute path:
 
 ```sh
 go mod edit -replace=github.com/vichr-vita/infergo=/absolute/path/to/infergo
-go get github.com/vichr-vita/infergo/cmd/infergen
+go get -tool github.com/vichr-vita/infergo/cmd/infergen
 ```
 
-The replacement makes generation and evaluation use the local source. Use
+The replacement makes `go tool infergen` and the runtime use the local source. Use
 `GOWORK=off` for commands in the scratch module if an enclosing Go workspace
 would otherwise change dependency selection. Do not commit a machine-specific
 replacement into a consumer intended to build elsewhere.
