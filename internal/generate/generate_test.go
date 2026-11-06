@@ -294,6 +294,27 @@ func Bonus(total int) (bonus int) { return total * 2 }
 		t.Fatalf("build output does not report %q in %s:\n%s", want, config.OutputFile, result)
 	}
 	regenerate()
+
+	write(t, rules, contract+`type Outputs struct {
+    Total int `+"`fact:\"total\"`"+`
+    Bonus int `+"`fact:\"bonus\"`"+`
+}
+func Bonus(total int) (bonus int) { return total * 2 }
+type Region struct{}
+`)
+	source, err := os.ReadFile(rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, rules, strings.Replace(string(source), "type Inputs struct {", "type Inputs struct {\n    Region Region `fact:\"region\"`", 1))
+	result, err = build()
+	if err == nil {
+		t.Fatal("stale evaluator compiled after an input changed")
+	}
+	if want := "cannot convert Inputs{}"; !bytes.Contains(result, []byte(want)) {
+		t.Fatalf("build output does not report %q:\n%s", want, result)
+	}
+	regenerate()
 }
 
 func TestGeneratedTraceIncludesFinishedAndCanceledWork(t *testing.T) {
