@@ -154,7 +154,9 @@ clients. Code that compares a recovered value directly must read `Value` or use
 
 Go turns `panic(nil)` into a `*runtime.PanicNilError`, which `Value` then holds.
 Under `GODEBUG=panicnil=1`, `Value` is nil, and the panic still stops evaluation
-and reaches the caller.
+and reaches the caller. The one exception is `panic(nil)` raised during a
+`runtime.Goexit` under that setting, which Go cannot distinguish from a plain
+`Goexit`, so the caller sees the `Goexit` behavior described below.
 
 This handler logs a rule panic and passes any other panic along:
 
