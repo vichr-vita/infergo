@@ -6,22 +6,22 @@ a typed evaluator into the same directory. This reference covers the CLI in
 
 ## Run the generator
 
-From a ruleset directory in a module that depends on Infergo:
+Record the generator as a tool dependency once, from your module root:
 
 ```sh
-go run github.com/vichr-vita/infergo/cmd/infergen --rules rules.go
+go get -tool github.com/vichr-vita/infergo/cmd/infergen
 ```
 
-To install a binary matching the version selected by that module:
+Then, from a ruleset directory in that module:
 
 ```sh
-go install github.com/vichr-vita/infergo/cmd/infergen
+go tool infergen --rules rules.go
 ```
 
-The executable goes to `GOBIN`, or the Go binary directory under `GOPATH` when
-`GOBIN` is unset. Add that directory to your shell's `PATH` to run `infergen`
-directly. Using `go run` in a generation directive avoids a separate binary
-installation and uses the module's selected dependency version.
+`go tool` builds `infergen` at the version in your `go.mod`, so the generator
+and the runtime always match, and `go mod tidy` keeps the dependency. Use the
+same command in a `//go:generate` directive. No binary is installed into
+`GOBIN` or onto your `PATH`.
 
 For work inside the Infergo repository, run `go run ./cmd/infergen --help` from
 the root. The included bonus package uses `go run ../../cmd/infergen` in its
@@ -45,13 +45,16 @@ spellings such as `-rules` and `-out` are not supported.
 Select multiple files using a comma-separated list or repeated flags:
 
 ```sh
-infergen --rules rates.go,awards.go
-infergen --rules rates.go --rules awards.go
+go tool infergen --rules rates.go,awards.go
+go tool infergen --rules rates.go --rules awards.go
 ```
 
 Whitespace around file names is trimmed. Blank entries and duplicate paths are
-errors. `--inputs` and `--outputs` name types in the current package, not file
-paths or qualified names from another package.
+errors. `--inputs` and `--outputs` name a type declared in the current package,
+not a file path or a qualified name such as `dep.In`. That type may be an alias
+or a defined type of a struct from another package, for example
+`type Inputs = dep.In`. See [Generated declarations](#generated-declarations) for
+what such a contract gives up.
 
 ## Configuration files
 
@@ -70,19 +73,19 @@ outputs: Outputs
 out: zz_infergo_gen.go
 ```
 
-Then run `infergen` with no flags. Only `rules` is required when using the default
+Then run `go tool infergen` with no flags. Only `rules` is required when using the default
 contract names and output file.
 
 To select a file elsewhere:
 
 ```sh
-infergen --config ../config/bonus.yaml
+go tool infergen --config ../config/bonus.yaml
 ```
 
 Or set the configuration path through the environment:
 
 ```sh
-INFERGEN_CONFIG=../config/bonus.yaml infergen
+INFERGEN_CONFIG=../config/bonus.yaml go tool infergen
 ```
 
 `--config` overrides `INFERGEN_CONFIG`. The config path is chosen before reading
@@ -102,7 +105,7 @@ For generator settings, the precedence is:
 Use a comma-separated value for `INFERGEN_RULES`:
 
 ```sh
-INFERGEN_RULES=rates.go,awards.go INFERGEN_OUT=generated.go infergen
+INFERGEN_RULES=rates.go,awards.go INFERGEN_OUT=generated.go go tool infergen
 ```
 
 Empty environment variables are treated as unset. An explicit `--rules` list
@@ -137,8 +140,9 @@ of `Evaluate` in another package or in tests.
 The output contains:
 
 - A generated-code header and the ruleset's package declaration.
-- A struct conversion for each of the input and output contracts, which stops
-  compiling if a contract's field names, types, or order change after generation.
+- A struct conversion for each input and output contract whose fields are all
+  declared in the ruleset package. It stops compiling if the contract's field
+  names, types, or order change after generation.
 - An unexported `_infergoPlan`, built once during package initialization.
 - An exported `Evaluate` function using your selected input and output types.
 - `Ruleset` metadata, `EvaluateTrace` diagnostic evaluation, and a typed
@@ -161,6 +165,16 @@ The generated file does not inherit build tags from rule files. If your ruleset
 varies by platform or build tags, ensure the generated file and its referenced
 rules are compiled together in every supported configuration. Separate packages
 are often easier to maintain than several graph variants in one directory.
+
+The contract conversions are fixed at generation time too. If a contract's fields
+vary by build tag or platform, or an array length comes from a platform-dependent
+constant, the conversion fails to compile on any configuration other than the one
+that generated it.
+
+A contract whose fields are declared in another package, such as
+`type Inputs = dep.In` or `type Inputs dep.In`, gets no conversion, because those
+fields can use types the ruleset package cannot name. Field changes in that
+package do not break the build, so `--check` is the only protection for it.
 
 ## Writes and failures
 
@@ -187,8 +201,8 @@ generated `Ruleset` metadata embeds each rule's source and doc comment, though.
 Until you regenerate, the viewer shows the old text and the check below fails.
 
 The compiler catches some staleness. The contract conversions in the generated
-file stop compiling when an input or output struct gains, loses, reorders, or
-retypes a field. Other changes still compile. Go types do not record parameter
+file stop compiling when an input or output struct declared in the ruleset package
+gains, loses, reorders, or retypes a field. Other changes still compile. Go types do not record parameter
 names, so renaming a parameter to another fact of the same type keeps the old
 wiring until you regenerate. Struct conversion ignores tags, so a changed `fact`
 tag behaves the same way.

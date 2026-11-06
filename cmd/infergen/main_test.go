@@ -20,7 +20,7 @@ func commandFixture(t *testing.T) {
 	for _, key := range []string{"CONFIG", "RULES", "INPUTS", "OUTPUTS", "OUT", "CHECK"} {
 		t.Setenv("INFERGEN_"+key, "")
 	}
-	write(t, "go.mod", fmt.Sprintf("module example.com/rules\n\ngo 1.26.4\n\nrequire github.com/vichr-vita/infergo v0.0.0\nreplace github.com/vichr-vita/infergo => %q\n", root))
+	write(t, "go.mod", fmt.Sprintf("module example.com/rules\n\ngo 1.26.0\n\nrequire github.com/vichr-vita/infergo v0.0.0\nreplace github.com/vichr-vita/infergo => %q\n", root))
 	write(t, "rules.go", `package rules
 type Inputs struct { Seed int `+"`fact:\"seed\"`"+` }
 type Outputs struct { Value int `+"`fact:\"value\"`"+` }
@@ -244,6 +244,33 @@ func TestCheckMode(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestCheckModeIgnoresLineEndings(t *testing.T) {
+	commandFixture(t)
+	write(t, "rules.go", strings.ReplaceAll(`package rules
+type Inputs struct { Seed int }
+type Outputs struct { Value int `+"`fact:\"value\"`"+` }
+func Rule(Seed int) (value int) {
+	return Seed + 1
+}
+`, "\n", "\r\n"))
+	generate := newCommand()
+	generate.SetArgs([]string{"--rules", "rules.go"})
+	if err := generate.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.ReadFile("zz_infergo_gen.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, "zz_infergo_gen.go", strings.ReplaceAll(string(source), "\n", "\r\n"))
+
+	check := newCommand()
+	check.SetArgs([]string{"--rules", "rules.go", "--check"})
+	if err := check.Execute(); err != nil {
+		t.Fatal(err)
 	}
 }
 

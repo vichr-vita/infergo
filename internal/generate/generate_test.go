@@ -17,7 +17,7 @@ func fixture(t *testing.T, source string) Config {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	write(t, filepath.Join(dir, "go.mod"), fmt.Sprintf("module example.com/rules\n\ngo 1.26.4\n\nrequire %s v0.0.0\nreplace %s => %q\n", runtimePath, runtimePath, root))
+	write(t, filepath.Join(dir, "go.mod"), fmt.Sprintf("module example.com/rules\n\ngo 1.26.0\n\nrequire %s v0.0.0\nreplace %s => %q\n", runtimePath, runtimePath, root))
 	write(t, filepath.Join(dir, "rules.go"), source)
 	return Config{Dir: dir, RuleFiles: []string{"rules.go"}, Inputs: "Inputs", Outputs: "Outputs", OutputFile: "zz_infergo_gen.go"}
 }
@@ -280,18 +280,30 @@ func Total(seed int) (total int) { return seed + 1 }
 	}
 	regenerate()
 
-	write(t, rules, contract+`type Outputs struct {
-    Total int `+"`fact:\"total\"`"+`
-    Bonus int `+"`fact:\"bonus\"`"+`
+	outputs := `type Outputs struct {
+    Total int ` + "`fact:\"total\"`" + `
+    Bonus int ` + "`fact:\"bonus\"`" + `
 }
 func Bonus(total int) (bonus int) { return total * 2 }
-`)
+`
+	write(t, rules, contract+outputs)
 	result, err := build()
 	if err == nil {
 		t.Fatal("stale evaluator compiled")
 	}
 	if want := "cannot convert Outputs{}"; !bytes.Contains(result, []byte(want)) || !bytes.Contains(result, []byte(config.OutputFile)) {
 		t.Fatalf("build output does not report %q in %s:\n%s", want, config.OutputFile, result)
+	}
+	regenerate()
+
+	changed := strings.Replace(contract, "type Inputs struct {", "type Inputs struct {\n    Region string `fact:\"region\"`", 1)
+	write(t, rules, changed+outputs)
+	result, err = build()
+	if err == nil {
+		t.Fatal("stale evaluator compiled after an input changed")
+	}
+	if want := "cannot convert Inputs{}"; !bytes.Contains(result, []byte(want)) {
+		t.Fatalf("build output does not report %q:\n%s", want, result)
 	}
 	regenerate()
 }
@@ -337,5 +349,79 @@ func TestTrace(t *testing.T) {
 	command.Env = append(os.Environ(), "GOWORK=off")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("traced cancellation failed: %v\n%s", err, output)
+	}
+}
+
+// buildPackage compiles the fixture with source as its generated file.
+func buildPackage(t *testing.T, config Config, source []byte) {
+	t.Helper()
+	write(t, filepath.Join(config.Dir, config.OutputFile), string(source))
+	command := exec.Command("go", "build", "./...")
+	command.Dir = config.Dir
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("generated code does not build: %v\n%s\n%s", err, output, source)
+	}
+}
+
+// Fields of another package's struct can use types the ruleset cannot name.
+func TestContractFromAnotherPackageBuildsWithoutGuard(t *testing.T) {
+	dependency := map[string]struct{ imports, field string }{
+		"unexported type":              {field: "hidden"},
+		"struct with unexported field": {field: "struct{ hidden int }"},
+		"internal package type":        {imports: `import "example.com/rules/dep/internal/secret"`, field: "secret.Value"},
+	}
+	for name, contract := range dependency {
+		for _, declaration := range []string{"type Inputs = dep.In", "type Inputs dep.In"} {
+			t.Run(name+"/"+declaration, func(t *testing.T) {
+				config := fixture(t, `package rules
+import "example.com/rules/dep"
+`+declaration+`
+type Outputs struct { Value int `+"`fact:\"value\"`"+` }
+func Rule() (value int) { return 1 }
+`)
+				secret := filepath.Join(config.Dir, "dep", "internal", "secret")
+				if err := os.MkdirAll(secret, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				write(t, filepath.Join(secret, "secret.go"), "package secret\ntype Value int\n")
+				write(t, filepath.Join(config.Dir, "dep", "dep.go"), fmt.Sprintf(
+					"package dep\n%s\ntype hidden int\ntype In struct { Field %s }\n", contract.imports, contract.field))
+
+				source, err := Generate(config)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if bytes.Contains(source, []byte("}(Inputs{})")) {
+					t.Fatalf("foreign contract has a guard:\n%s", source)
+				}
+				if !bytes.Contains(source, []byte("}(Outputs{})")) {
+					t.Fatalf("local contract lost its guard:\n%s", source)
+				}
+				buildPackage(t, config, source)
+			})
+		}
+	}
+}
+
+func TestLineEndingsDoNotChangeOutput(t *testing.T) {
+	rules := `package rules
+type Inputs struct { Seed int ` + "`fact:\"seed\"`" + ` }
+type Outputs struct { Value int ` + "`fact:\"value\"`" + ` }
+// Rule adds one.
+// BR-01.
+func Rule(seed int) (value int) {
+	return seed + 1
+}
+`
+	lf, err := Generate(fixture(t, rules))
+	if err != nil {
+		t.Fatal(err)
+	}
+	crlf, err := Generate(fixture(t, strings.ReplaceAll(rules, "\n", "\r\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(lf, crlf) {
+		t.Fatalf("output differs by line ending:\n%s\n%s", lf, crlf)
 	}
 }

@@ -79,11 +79,22 @@ If a non-test file in the ruleset calls `Evaluate`, generation can fail with
 Move that caller into another package or a test file. Leave contracts, rule
 functions, and helpers compilable on their own.
 
-For missing module checksum entries when running the generator, add its package
-dependency from your application's module with
-`go get github.com/vichr-vita/infergo/cmd/infergen`. Review the resulting module
-changes. The command and generated runtime should use the same selected Infergo
-module version.
+For missing module checksum entries when running the generator, record it as a
+tool dependency of your application's module with
+`go get -tool github.com/vichr-vita/infergo/cmd/infergen` and run it with
+`go tool infergen`. Unlike a plain `go get` of the command package, a tool
+dependency survives `go mod tidy`. Review the resulting module changes. The
+command and generated runtime should use the same selected Infergo module
+version.
+
+### `undefined: Evaluate` or `undefined: score.Evaluate` before the first generation
+
+If `go build ./...` reports `undefined: score.Evaluate` (a caller in another
+package) or `go vet` or `go test` reports `undefined: Evaluate` (a test file in
+the ruleset package), and the generated file does not exist yet, `go generate`
+has not run. Run `go generate ./...` from the module root, then build again.
+`go build` on the ruleset package alone succeeds, because nothing in it calls
+`Evaluate`.
 
 ## An unused rule fails generation
 
@@ -117,7 +128,22 @@ fact. With concurrent failures, the observed rule name can vary between runs.
 Infergo waits for started rule calls to finish. Pass the received context to
 blocking I/O and check it during long computations. A rule that ignores
 cancellation can hold up `Evaluate` after the caller's deadline. The engine does
-not kill goroutines or recover panics.
+not kill goroutines.
+
+## A rule panics
+
+Put `recover` on the goroutine that calls `Evaluate`. The recovered value is an
+`*infergo.PanicError` at every `MaxParallel`. Its `Rule` field names the rule,
+`Value` holds the original panic value, and `Stack` shows where the panic
+happened. If existing code compares the recovered value directly, read `Value`
+or use `errors.Is`.
+
+If the rule panicked in a deferred function during `runtime.Goexit`, for example
+after `t.FailNow`, sequential execution ends the goroutine after `recover`.
+
+The panic reaches the caller only after started rules return, so a rule that
+ignores cancellation delays it. `EvaluateTrace` and `ExportHTML` panic the same
+way and return no snapshot or HTML. See [Rule panics](runtime.md#rule-panics).
 
 ## Parallel execution races or is slower
 
