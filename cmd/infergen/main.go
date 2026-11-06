@@ -265,9 +265,14 @@ func ruleCount(rules int) string {
 	return fmt.Sprintf("%d rules", rules)
 }
 
+// sameSource reports whether a file on disk holds the generated source. It
+// ignores CRLF, so that an autocrlf checkout counts as current.
+func sameSource(existing, source []byte) bool {
+	return bytes.Equal(bytes.ReplaceAll(existing, []byte("\r\n"), []byte("\n")), source)
+}
+
 // checkFile fails unless path already holds the generated source. It never
-// writes. CRLF in the file on disk is ignored so that an autocrlf checkout
-// passes. The package path identifies the failure in go generate ./... output.
+// writes. The package path identifies the failure in go generate ./... output.
 func checkFile(path string, result generate.Result) error {
 	existing, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -276,7 +281,7 @@ func checkFile(path string, result generate.Result) error {
 	if err != nil {
 		return fmt.Errorf("read generated file: %w", err)
 	}
-	if !bytes.Equal(bytes.ReplaceAll(existing, []byte("\r\n"), []byte("\n")), result.Source) {
+	if !sameSource(existing, result.Source) {
 		return fmt.Errorf("%s: %s is out of date; run go generate", result.Package, path)
 	}
 	return nil
@@ -284,13 +289,10 @@ func checkFile(path string, result generate.Result) error {
 
 // writeFile reports whether it changed path's content. It leaves a current file
 // in place, apart from correcting its mode, so its modification time holds. It
-// replaces any other file only after the full write succeeds.
+// replaces any other file only after the full write succeeds. A file it cannot
+// read counts as changed, because replacing it doesn't need read access.
 func writeFile(path string, content []byte, mode os.FileMode) (bool, error) {
-	existing, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return false, fmt.Errorf("read output file: %w", err)
-	}
-	if err == nil && bytes.Equal(existing, content) {
+	if existing, err := os.ReadFile(path); err == nil && sameSource(existing, content) {
 		return false, enforceMode(path, mode)
 	}
 	file, err := os.CreateTemp(filepath.Dir(path), ".infergen-*"+filepath.Ext(path))

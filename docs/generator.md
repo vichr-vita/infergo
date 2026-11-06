@@ -6,22 +6,22 @@ a typed evaluator into the same directory. This reference covers the CLI in
 
 ## Run the generator
 
-From a ruleset directory in a module that depends on Infergo:
+Record the generator as a tool dependency once, from your module root:
 
 ```sh
-go run github.com/vichr-vita/infergo/cmd/infergen --rules rules.go
+go get -tool github.com/vichr-vita/infergo/cmd/infergen
 ```
 
-To install a binary matching the version selected by that module:
+Then, from a ruleset directory in that module:
 
 ```sh
-go install github.com/vichr-vita/infergo/cmd/infergen
+go tool infergen --rules rules.go
 ```
 
-The executable goes to `GOBIN`, or the Go binary directory under `GOPATH` when
-`GOBIN` is unset. Add that directory to your shell's `PATH` to run `infergen`
-directly. Using `go run` in a generation directive avoids a separate binary
-installation and uses the module's selected dependency version.
+`go tool` builds `infergen` at the version in your `go.mod`, so the generator
+and the runtime always match, and `go mod tidy` keeps the dependency. Use the
+same command in a `//go:generate` directive. No binary is installed into
+`GOBIN` or onto your `PATH`.
 
 For work inside the Infergo repository, run `go run ./cmd/infergen --help` from
 the root. The included bonus package uses `go run ../../cmd/infergen` in its
@@ -48,8 +48,8 @@ spellings such as `-rules` and `-out` are not supported.
 Select multiple files using a comma-separated list or repeated flags:
 
 ```sh
-infergen --rules rates.go,awards.go
-infergen --rules rates.go --rules awards.go
+go tool infergen --rules rates.go,awards.go
+go tool infergen --rules rates.go --rules awards.go
 ```
 
 Whitespace around file names is trimmed. Blank entries and duplicate paths are
@@ -76,19 +76,19 @@ outputs: Outputs
 out: zz_infergo_gen.go
 ```
 
-Then run `infergen` with no flags. Only `rules` is required when using the default
+Then run `go tool infergen` with no flags. Only `rules` is required when using the default
 contract names and output file.
 
 To select a file elsewhere:
 
 ```sh
-infergen --config ../config/bonus.yaml
+go tool infergen --config ../config/bonus.yaml
 ```
 
 Or set the configuration path through the environment:
 
 ```sh
-INFERGEN_CONFIG=../config/bonus.yaml infergen
+INFERGEN_CONFIG=../config/bonus.yaml go tool infergen
 ```
 
 `--config` overrides `INFERGEN_CONFIG`. The config path is chosen before reading
@@ -108,7 +108,7 @@ For generator settings, the precedence is:
 Use a comma-separated value for `INFERGEN_RULES`:
 
 ```sh
-INFERGEN_RULES=rates.go,awards.go INFERGEN_OUT=generated.go infergen
+INFERGEN_RULES=rates.go,awards.go INFERGEN_OUT=generated.go go tool infergen
 ```
 
 Empty environment variables are treated as unset. An explicit `--rules` list
@@ -193,31 +193,54 @@ infergen: example.com/rules: updated zz_infergo_gen.go (4 rules)
 
 If the content already matches, the CLI keeps the file, correcting only its mode
 if needed, and prints no such line, so a generation that changes nothing is
-quiet. The destination is replaced,
+quiet. CRLF line endings in the existing file don't count as a difference, here
+or with `--check`. A file the CLI can't read counts as different, so it gets
+replaced. The destination is replaced,
 so choose a file reserved for generated code. With `--check`, the CLI compares
 instead and writes nothing.
 
 Generation or temporary-write failures leave an existing output untouched.
 Errors go to standard error with an `infergen:` prefix, and the process exits
-with status 1. One run reports every declaration and graph error in source order.
-After 10 errors it prints `too many errors` and stops, as the Go compiler does.
-Go package load and type-check failures end the run on their own, because the
-rules can't be read until the package compiles.
+with status 1. One run reports declaration and graph errors together in source
+order. After 10 errors it prints `too many errors` and stops, as the Go compiler
+does. A rejected declaration can hide a related error until you fix it. For
+example, a rule with an unnamed `int` result hides a missing `typo int` parameter,
+because that parameter might be meant to read the result. The run still fails,
+and the next run reports what remains. Go package load and type-check failures
+end the run on their own, because the rules can't be read until the package
+compiles.
 
-Source positions are relative to the ruleset directory. Config and path errors
-may have no position. A missing fact gets a suggestion when a known fact name is
-close:
+Each declaration, graph, and load error starts with the Go package path, followed
+by a position relative to the ruleset directory, so `go generate ./...` output
+shows which package failed. A missing fact gets a suggestion when a known fact
+name is close, unless the rule's signature already declares that name:
 
 ```text
-infergen: rules.go:5:13: no input or rule produces fact "sed"; did you mean "seed"?
+infergen: example.com/rules: rules.go:5:13: no input or rule produces fact "sed"; did you mean "seed"?
 ```
+
+A compiler error block has no prefix of its own, because its `# <package>` heading
+already names the package:
+
+```text
+infergen: load ruleset:
+# example.com/rules
+./rules.go:3:12: undefined: undefinedType
+infergen: example.com/rules: load ruleset: rules.go:3:12: undefined: undefinedType
+```
+
+A position in a file outside the ruleset directory stays absolute, for example
+when a contract field is declared in another package. Errors from before the
+package loads, such as config and path errors, have no package prefix and may have
+no position. One of them, `read ruleset package:`, prints the rule file's absolute
+path.
 
 A successful run can also print warnings to standard error. Warnings never change
 the exit status, and `--check` prints them too:
 
 ```text
-infergen: example.com/rules: warning: rules.go:12:6: rule Orphan is not needed by any output and was left out
 infergen: example.com/rules: warning: rules.go:4:2: input fact "region" is not used by any output or retained rule
+infergen: example.com/rules: warning: rules.go:12:6: rule Orphan is not needed by any output and was left out
 ```
 
 An input counts as unused when no retained rule consumes it and no output reads

@@ -2,21 +2,25 @@
 
 Use this guide to change the generator, runtime, example, or documentation.
 The [architecture guide](docs/architecture.md) explains where each responsibility
-lives. The repository uses ordinary Go commands and does not require a separate
-build tool.
+lives. Ordinary Go commands work in this repository. The Makefile collects the
+project's checks so that contributors and CI run the same ones, and it assumes
+GNU Make.
 
 ## Set up a checkout
 
-Install Go 1.26.4 or later. The race detector also needs a supported Go platform
-and the platform's C toolchain.
+Install Go 1.26.0 or later, GNU Make, and Node 22, the version CI uses. The race
+detector also needs a supported Go platform and the platform's C toolchain.
 
-From a checkout, run:
+From a checkout, install the viewer's Node dependencies and run every check
+that does not need a browser:
 
 ```sh
-go mod download
-go generate ./...
-go test -race ./...
+npm ci
+make check
 ```
+
+A change that touches only Go code can skip Node. Run `make check-go` instead,
+which needs only Go and Make.
 
 Generation rewrites the committed bonus evaluator from its declarations. It
 does not contact a database or application service. Package loading and module
@@ -24,27 +28,33 @@ downloads may need access to Go module dependencies.
 
 ## Verify a change
 
-Format any Go files you edited, regenerate when needed, and run:
+Format Go files with `make fmt`, regenerate when needed with `make generate`,
+and run:
 
 ```sh
-go generate ./...
-go test -race ./...
-go vet ./...
+make check
 git diff --check
 ```
 
+`make check` runs `make check-go` and `make check-viewer`. The Go checks verify
+formatting, that `go.mod` is tidy, `go vet`, that the generated output is
+current, and the tests with the race detector. The viewer check type-checks the
+viewer and verifies that the committed bundle is current. `git diff --check`
+depends on what is staged, so run it yourself.
+
 Review changes to `ruleset/bonus/zz_infergo_gen.go` whenever you change emission
-or the example's graph. Commit generated changes alongside their source. To
-confirm that the generated output is current, run:
+or the example's graph. Commit generated changes alongside their source. The
+staleness check in `make check-go` writes nothing and fails if the generated
+file differs from what the generator would produce.
+
+Viewer changes also need the browser tests, which require Playwright browsers:
 
 ```sh
-INFERGEN_CHECK=true go generate ./...
+npx playwright install chromium webkit
+make test-ui
 ```
 
-This writes nothing and fails if the generated file differs from what the
-generator would produce.
-
-The CI workflow runs these checks, verifies the viewer bundle, and tests the
+The CI workflow runs `make check` and `make test-ui`, which test the
 HTML viewer in Chromium and WebKit, including narrow mobile widths. Follow the
 [viewer development instructions](docs/visualization.md#maintain-the-viewer)
 when changing the viewer. A docs-only change
@@ -77,10 +87,10 @@ the dependency path. Substitute your checkout's absolute path:
 
 ```sh
 go mod edit -replace=github.com/vichr-vita/infergo=/absolute/path/to/infergo
-go get github.com/vichr-vita/infergo/cmd/infergen
+go get -tool github.com/vichr-vita/infergo/cmd/infergen
 ```
 
-The replacement makes generation and evaluation use the local source. Use
+The replacement makes `go tool infergen` and the runtime use the local source. Use
 `GOWORK=off` for commands in the scratch module if an enclosing Go workspace
 would otherwise change dependency selection. Do not commit a machine-specific
 replacement into a consumer intended to build elsewhere.
@@ -110,8 +120,10 @@ to each call. Avoid mutable execution state on `Plan`. Dependencies must count
 producer rules once even when several facts come from that producer.
 
 Failure and cancellation must signal running work and wait for it before return.
-Independent rule completions must not block forever after the coordinator stops
-receiving. Preserve the sequential path for limits zero and one.
+A rule panic follows the same cleanup and must reach the goroutine that called
+`Run` at every limit. Independent rule completions must not block forever after
+the coordinator stops receiving. Preserve the sequential path for limits zero
+and one.
 
 The public contract does not require a specific order among independent rules.
 Tests should assert dependencies and bounds without creating an accidental

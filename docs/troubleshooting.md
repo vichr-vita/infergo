@@ -6,10 +6,11 @@ generated code and reports failures from options, cancellation, or your rules.
 
 ## Generation fails
 
-Run the generator from the ruleset directory. It reports every declaration and
-graph error it finds in one run, up to 10, with locations relative to that
-directory. The following messages are diagnostic fragments; file names, locations,
-and fact names vary by ruleset.
+Run the generator from the ruleset directory. It reports the declaration and
+graph errors it finds in one run, up to 10. Each one starts with the Go package
+path and a location relative to that directory. Fixing them can reveal more,
+because a rejected declaration can hide a related error. The following messages
+are diagnostic fragments; file names, locations, and fact names vary by ruleset.
 
 | Message or symptom | Cause and correction |
 | --- | --- |
@@ -21,6 +22,7 @@ and fact names vary by ruleset.
 | `decode config:` | Check value types. Use a list of file names for `rules` and strings for the other settings. |
 | `read ruleset package:` | The first rule file could not be read or its package clause could not be parsed. Check the path and Go syntax. |
 | `load ruleset:` | Fix the reported Go package or dependency errors. Source may refer to the generated API, because the generator hides the configured generated file and declares stubs in its place. Everything else must type-check. |
+| `which this module cannot load` | Non-test source uses the generated API, and the module can't load the Infergo runtime that the generated code imports. Run `go get github.com/vichr-vita/infergo`, then `go mod vendor` if the module has a vendor directory. Any `undefined: Evaluate` lines that follow come from the same cause. |
 | `missing or excluded by build constraints` | Select an existing file in the active build and check build tags, `GOOS`, `GOARCH`, and `GOFLAGS`. |
 | `must be a non-test .go file` | Keep rules and output in the current ruleset directory. Avoid `_test.go` paths and do not select the output as a rule file. |
 | `is selected twice` | Remove duplicate paths from the rule selection. |
@@ -81,11 +83,22 @@ API. The generator hides the generated file while loading and declares stubs wit
 the same signatures in its place. A call that doesn't match those signatures
 fails as `load ruleset:`, as it would in `go build`.
 
-For missing module checksum entries when running the generator, add its package
-dependency from your application's module with
-`go get github.com/vichr-vita/infergo/cmd/infergen`. Review the resulting module
-changes. The command and generated runtime should use the same selected Infergo
-module version.
+For missing module checksum entries when running the generator, record it as a
+tool dependency of your application's module with
+`go get -tool github.com/vichr-vita/infergo/cmd/infergen` and run it with
+`go tool infergen`. Unlike a plain `go get` of the command package, a tool
+dependency survives `go mod tidy`. Review the resulting module changes. The
+command and generated runtime should use the same selected Infergo module
+version.
+
+### `undefined: Evaluate` or `undefined: score.Evaluate` before the first generation
+
+If `go build ./...` reports `undefined: score.Evaluate` (a caller in another
+package) or `go vet` or `go test` reports `undefined: Evaluate` (a test file in
+the ruleset package), and the generated file does not exist yet, `go generate`
+has not run. Run `go generate ./...` from the module root, then build again.
+`go build` on the ruleset package alone succeeds, because nothing in it calls
+`Evaluate`.
 
 ## An unused rule fails generation
 
@@ -131,7 +144,22 @@ vary between runs.
 Infergo waits for started rule calls to finish. Pass the received context to
 blocking I/O and check it during long computations. A rule that ignores
 cancellation can hold up `Evaluate` after the caller's deadline. The engine does
-not kill goroutines or recover panics.
+not kill goroutines.
+
+## A rule panics
+
+Put `recover` on the goroutine that calls `Evaluate`. The recovered value is an
+`*infergo.PanicError` at every `MaxParallel`. Its `Rule` field names the rule,
+`Value` holds the original panic value, and `Stack` shows where the panic
+happened. If existing code compares the recovered value directly, read `Value`
+or use `errors.Is`.
+
+If the rule panicked in a deferred function during `runtime.Goexit`, for example
+after `t.FailNow`, sequential execution ends the goroutine after `recover`.
+
+The panic reaches the caller only after started rules return, so a rule that
+ignores cancellation delays it. `EvaluateTrace` and `ExportHTML` panic the same
+way and return no snapshot or HTML. See [Rule panics](runtime.md#rule-panics).
 
 ## Parallel execution races or is slower
 

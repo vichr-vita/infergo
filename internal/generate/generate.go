@@ -25,6 +25,9 @@ import (
 
 const runtimePath = "github.com/vichr-vita/infergo"
 
+const runtimeUnavailable = "generated code imports " + runtimePath + ", which this module cannot load; " +
+	"require it in go.mod and, if the module has a vendor directory, vendor it"
+
 // maxErrors matches the Go compiler's default limit.
 const maxErrors = 10
 
@@ -49,8 +52,9 @@ type Result struct {
 	Notes       []Note          // Warnings in source order.
 }
 
-// Note is a diagnostic. Position is relative to Config.Dir and is invalid for
-// a problem that has no source location.
+// Note is a diagnostic. Position is relative to Config.Dir for a file inside it.
+// A file elsewhere, such as a contract field declared in another package, keeps
+// its absolute path. Position is invalid for a problem with no source location.
 type Note struct {
 	Position token.Position
 	Message  string
@@ -113,7 +117,9 @@ type compiler struct {
 // Generate returns formatted Go source without writing files. It validates all
 // selected rules, then emits only ancestors of the requested output facts.
 // Declaration and graph errors are collected and returned together in source
-// order. The returned error unwraps to one error per line of the report.
+// order, each naming the package. A rejected declaration can hide a related
+// error until it is fixed, so a report is not always complete, but generation
+// fails either way. The returned error unwraps to one error per report entry.
 func Generate(config Config) (Result, error) {
 	if config.Inputs == "" || config.Outputs == "" || len(config.RuleFiles) == 0 || config.OutputFile == "" {
 		return Result{}, fmt.Errorf("inputs, outputs, rule files, and output file are required")
@@ -176,7 +182,7 @@ func Generate(config Config) (Result, error) {
 	for _, path := range paths {
 		file, ok := files[path]
 		if !ok {
-			return Result{}, fmt.Errorf("rule file %q is missing or excluded by build constraints", c.relative(path))
+			return Result{}, c.packageError(fmt.Sprintf("rule file %q is missing or excluded by build constraints", c.relative(path)))
 		}
 		raw, err := os.ReadFile(path)
 		if err != nil {
@@ -220,7 +226,8 @@ func stripCarriageReturns(text string) string {
 // absent or stale output cannot affect it. A package that compiles without the
 // generated API needs nothing else. Otherwise it may refer to that API from a
 // non-test file, so a second load declares stubs for it. The partial first load
-// has already caught whatever would turn the stubs into confusing errors.
+// has already caught the contract and naming problems that would otherwise show
+// up as confusing errors in the stubs.
 func (c *compiler) load(config Config, output, packageName string) error {
 	pkg, err := loadPackage(c.dir, output, []byte("package "+packageName+"\n"))
 	if err != nil {
@@ -228,7 +235,7 @@ func (c *compiler) load(config Config, output, packageName string) error {
 	}
 	c.pkg = pkg
 	if !recoverable(pkg) {
-		return c.loadError()
+		return errors.Join(c.loadFailures()...)
 	}
 	if pkg.PkgPath == runtimePath {
 		return fmt.Errorf("rules must be in a separate package from the infergo runtime")
@@ -246,12 +253,20 @@ func (c *compiler) load(config Config, output, packageName string) error {
 	if err := c.failure(); err != nil {
 		return err
 	}
-	c.pkg, err = loadPackage(c.dir, output, apiStubs(pkg.Types.Scope(), packageName, config))
+	stubbed, err := loadPackage(c.dir, output, apiStubs(pkg.Types.Scope(), packageName, config))
 	if err != nil {
 		return err
 	}
+	// An error inside the stubs would point at a file the reader cannot open. They
+	// import only the runtime and the standard library, and the contracts passed
+	// above, so such an error means the module can't load the runtime. The first
+	// load's errors, still in c.pkg, show what that leaves unresolved.
+	if slices.ContainsFunc(stubbed.Errors, func(err packages.Error) bool { return strings.HasPrefix(err.Pos, output+":") }) {
+		return errors.Join(slices.Insert(c.loadFailures(), 0, c.packageError("load ruleset: "+runtimeUnavailable))...)
+	}
+	c.pkg = stubbed
 	if len(c.pkg.Errors) != 0 {
-		return c.loadError()
+		return errors.Join(c.loadFailures()...)
 	}
 	return nil
 }
@@ -305,17 +320,36 @@ func recoverable(pkg *packages.Package) bool {
 	})
 }
 
-func (c *compiler) loadError() error {
-	messages := make([]string, len(c.pkg.Errors))
+// loadFailures returns one error per package load error. A compiler block keeps
+// its own "# <package>" heading in place of the package prefix.
+func (c *compiler) loadFailures() []error {
+	failures := make([]error, len(c.pkg.Errors))
 	for i, err := range c.pkg.Errors {
-		messages[i] = c.relative(err.Error())
+		message := err.Msg
+		if err.Pos != "" {
+			message = err.Error()
+		}
+		message = c.relative(message)
+		if strings.HasPrefix(message, "# "+c.pkg.PkgPath+"\n") {
+			failures[i] = errors.New("load ruleset:\n" + message)
+		} else {
+			failures[i] = c.packageError("load ruleset: " + message)
+		}
 	}
-	return fmt.Errorf("load ruleset:\n%s", strings.Join(messages, "\n"))
+	return failures
 }
 
-// relative strips the ruleset directory from every path in text. All paths the
-// generator prints pass through here. Only a path that starts with the directory
-// matches, so a longer path that merely contains it stays intact.
+// packageError names the ruleset package in a diagnostic. Positions are relative
+// to the package directory, and go generate ./... runs many packages in one
+// stream, so a position alone does not identify the file.
+func (c *compiler) packageError(message string) error {
+	return errors.New(c.pkg.PkgPath + ": " + message)
+}
+
+// relative strips the ruleset directory from paths in text that lie inside it.
+// Positions and load errors pass through here. A path outside the directory
+// stays absolute, as does the directory itself. Only a path that starts with the
+// directory matches, so a longer path that merely contains it stays intact.
 func (c *compiler) relative(text string) string {
 	prefix := regexp.MustCompile("(^|[\\s\"'`(\\[:=,])" + regexp.QuoteMeta(c.dir+string(filepath.Separator)))
 	return prefix.ReplaceAllString(text, "$1")
@@ -337,10 +371,10 @@ func (c *compiler) failure() error {
 	sortNotes(c.errors)
 	var failures []error
 	for _, note := range c.errors[:min(len(c.errors), maxErrors)] {
-		failures = append(failures, errors.New(note.String()))
+		failures = append(failures, c.packageError(note.String()))
 	}
 	if len(c.errors) > maxErrors {
-		failures = append(failures, errors.New("too many errors"))
+		failures = append(failures, c.packageError("too many errors"))
 	}
 	return errors.Join(failures...)
 }
@@ -404,7 +438,7 @@ func (c *compiler) fields(name string) ([]field, bool) {
 			fields[first].fact.uncertain = true
 			continue
 		}
-		if isError(f.Type()) || isContext(f.Type()) {
+		if factName != "" && (isError(f.Type()) || isContext(f.Type())) {
 			c.errorf(f.Pos(), "fact %q cannot use the reserved error or context.Context types", factName)
 			rejected = true
 		}
@@ -489,13 +523,14 @@ func (c *compiler) addRule(fn *types.Func) {
 }
 
 // resolve finds the declaration of a wanted fact and reports any mismatch. The
-// result is false when the fact cannot be trusted as a graph edge.
-func (c *compiler) resolve(want fact) (fact, bool) {
+// result is false when the fact cannot be trusted as a graph edge. The signature
+// holds the facts of the rule that wants this one, if any.
+func (c *compiler) resolve(want fact, signature []fact) (fact, bool) {
 	f, exists := c.facts[want.name]
 	if !exists {
 		matchesUnnamed := slices.ContainsFunc(c.unnamed, func(t types.Type) bool { return types.Identical(t, want.typ) })
 		if !c.inputsUnknown && !matchesUnnamed {
-			c.errorf(want.pos, "no input or rule produces fact %q%s", want.name, c.suggestion(want.name))
+			c.errorf(want.pos, "no input or rule produces fact %q%s", want.name, c.suggestion(want.name, signature))
 		}
 		return fact{}, false
 	}
@@ -512,9 +547,13 @@ func (c *compiler) resolve(want fact) (fact, bool) {
 // suggestion returns a "did you mean" clause naming the known fact closest to
 // name, or nothing if no fact is close enough. Comparison ignores case, so a
 // case-only difference always wins. Ties go to the alphabetically first name.
-func (c *compiler) suggestion(name string) string {
+// Names already in the signature are skipped, because Go rejects a redeclaration.
+func (c *compiler) suggestion(name string, signature []fact) string {
 	best, bestDistance := "", 0
 	for _, candidate := range sortedFactNames(c.facts) {
+		if slices.ContainsFunc(signature, func(f fact) bool { return f.name == candidate }) {
+			continue
+		}
 		distance := editDistance(strings.ToLower(name), strings.ToLower(candidate))
 		// One edit in a three-letter name is close only if it is an insertion
 		// or deletion: sed for seed, but not tax for tab.
@@ -560,7 +599,7 @@ func (c *compiler) validate() {
 	for id := range c.rules {
 		r := &c.rules[id]
 		for _, input := range r.inputs {
-			f, ok := c.resolve(input)
+			f, ok := c.resolve(input, slices.Concat(r.inputs, r.outputs))
 			if ok && f.producer >= 0 && !slices.Contains(r.dependencies, f.producer) {
 				r.dependencies = append(r.dependencies, f.producer)
 			}
@@ -569,7 +608,7 @@ func (c *compiler) validate() {
 	}
 	for _, output := range c.outputs {
 		if !output.fact.uncertain {
-			c.resolve(output.fact)
+			c.resolve(output.fact, nil)
 		}
 	}
 	state := make([]uint8, len(c.rules))
