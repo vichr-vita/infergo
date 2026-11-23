@@ -1,7 +1,7 @@
 // Diagnostics: a deliberately broken file is written from outside, as an IDE
 // would, and each problem must show on the element it is about. The evaluator
 // on disk follows the compiler's verdict.
-const { test, expect, selectRule, fit } = require('./editor-fixture.cjs');
+const { test, expect, selectRule, showRule } = require('./editor-fixture.cjs');
 
 test.describe.configure({ timeout: 60_000 });
 
@@ -26,7 +26,8 @@ test('item 6: a missing producer shows on the read, and one click on the fix lin
   await expect(page.locator('#graph-root .graph-fix')).toHaveText([
     'Rename to cappedBonusCents', 'Add input cappedBonusCent', 'Create a rule that produces cappedBonusCent',
   ]);
-  await selectRule(page, 'FinalBonus');
+  // The fix links are hidden below a zoom of 0.75, so read the rule at Actual size.
+  await showRule(page, 'FinalBonus');
   await expect(page.locator('#sheet-root .sheet-row-problems:not([hidden])')).toContainText('did you mean "cappedBonusCents"?');
   await expect(page.locator('#sheet-root .sheet-origin', { hasText: 'No producer' })).toBeVisible();
 
@@ -50,7 +51,7 @@ test('item 6: a type mismatch shows on the wire and the reader, and one click on
   const wire = page.locator('#graph-root .graph-wire[data-wire="CappedBonus>cappedBonusCents>FinanceRequired"]');
   await expect(wire).toHaveClass(/error/);
   await expect(page.locator('#graph-root .graph-label[data-wire="CappedBonus>cappedBonusCents>FinanceRequired"]')).toHaveClass(/error/);
-  await selectRule(page, 'FinanceRequired');
+  await showRule(page, 'FinanceRequired');
   await expect(page.locator('#sheet-root .sheet-row-problems:not([hidden])')).toContainText('has type uint64, expected uint32');
 
   await page.locator('#graph-root .graph-fix', { hasText: 'Use uint64 in FinanceRequired' }).click();
@@ -72,12 +73,17 @@ test('item 6: a cycle shows on every rule on it, and a fix link removes one wire
   // The note that names the whole cycle sits on the rule the compiler reported.
   await expect(node(page, 'CappedBonus')).toContainText(/On a cycle: CappedBonus\s*→\s*ApprovalsSatisfied\s*→\s*FinanceRequired\s*→\s*CappedBonus/);
   await expect(node(page, 'FinalBonus')).not.toHaveClass(/error/);
-  await expect(page.locator('#graph-root .graph-fix')).toHaveText([
-    'Remove approvalsSatisfied from CappedBonus', 'Remove financeRequired from ApprovalsSatisfied', 'Remove cappedBonusCents from FinanceRequired',
+  // Each wire on the cycle carries its own link, named for the read it removes.
+  const fixes = page.locator('#graph-root .graph-fix');
+  await expect(fixes).toHaveText(['Remove this wire', 'Remove this wire', 'Remove this wire']);
+  // The links keep no fixed order, so compare the names as a set.
+  await expect.poll(() => fixes.evaluateAll(links => links.map(link => link.getAttribute('aria-label')).sort())).toEqual([
+    'Remove approvalsSatisfied from CappedBonus', 'Remove cappedBonusCents from FinanceRequired', 'Remove financeRequired from ApprovalsSatisfied',
   ]);
 
-  await fit(page);
-  await page.locator('#graph-root .graph-fix', { hasText: 'Remove approvalsSatisfied from CappedBonus' }).click();
+  // The link is hidden below a zoom of 0.75. At Actual size on CappedBonus its incoming wire is on screen.
+  await showRule(page, 'CappedBonus');
+  await page.locator('#graph-root').getByRole('button', { name: 'Remove approvalsSatisfied from CappedBonus' }).click();
   await expect(summary(page)).toContainText('0 errors');
   expect(editor.read()).toBe(good);
 });

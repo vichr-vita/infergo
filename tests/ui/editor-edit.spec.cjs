@@ -1,5 +1,5 @@
 // Structural edits: rename a fact, create and delete rules, reword a requirement.
-const { test, expect, commentLines, fit, factRow, pickUp, moveOverEmptyCanvas, selectRule, receipt } = require('./editor-fixture.cjs');
+const { test, expect, commentLines, fit, factRow, pickUp, moveOverEmptyCanvas, selectRule, showRule, receipt } = require('./editor-fixture.cjs');
 
 test.describe.configure({ timeout: 60_000 });
 
@@ -168,7 +168,7 @@ test('contracts: adding an input and requesting an output by drop edit the struc
   expect(editor.gofmtList('facts.go')).toBe('');
 
   // Drag a produced fact from its node onto the Outputs section.
-  await fit(page);
+  await showRule(page, 'CappedBonus');
   const source = page.locator('#graph-root [data-rule="CappedBonus"] .graph-fact.produce');
   const box = await source.boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
