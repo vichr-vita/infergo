@@ -78,7 +78,10 @@ func (f *parsedFile) text(node ast.Node) string {
 
 // complete reports whether node ends before the file's first syntax error.
 func (f *parsedFile) complete(node ast.Node) bool {
-	return f.offset(node.End()) <= f.errorOffset
+	// The parser can give an unfinished node an end it cannot place in the
+	// file, which maps to offset zero.
+	end := f.offset(node.End())
+	return end > f.offset(node.Pos()) && end <= f.errorOffset
 }
 
 // isTest reports whether the file is a _test.go file.
