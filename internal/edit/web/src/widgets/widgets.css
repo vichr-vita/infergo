@@ -1,0 +1,31 @@
+/* Shared inline forms and the combobox, used by the Facts column, the sheet,
+   and the list view. Square, 1 px, no chrome. */
+.inline-form { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.inline-form label { width: 100%; margin: 0; font-size: 12px; }
+.inline-form .inline-input { flex: 1 1 140px; min-height: 32px; font: 12px var(--mono); border-color: var(--teal); }
+.inline-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.inline-message { font-size: 12px; margin: 0; width: 100%; overflow-wrap: anywhere; }
+.inline-message:empty { display: none; }
+.inline-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13px; padding: 6px 0 6px 12px; border-left: 2px solid var(--amber); overflow-wrap: anywhere; }
+button.danger { border-color: var(--amber); color: var(--amber); }
+button.mini { white-space: nowrap; }
+
+.combo { border: 1px solid var(--teal); padding: 8px 10px 10px; min-width: 0; }
+.combo-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.combo-head label { margin: 0; }
+.combo input { margin-top: 6px; min-height: 36px; font: 12px var(--mono); }
+.combo-list { list-style: none; margin: 6px 0 0; padding: 0; max-height: min(320px, 50dvh); overflow-y: auto; scrollbar-width: thin; }
+.combo-option { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 5px 4px; border-bottom: 1px solid var(--rule-soft); cursor: pointer; min-width: 0; }
+.combo-option .combo-name { font: 12px var(--mono); overflow-wrap: anywhere; min-width: 0; }
+.combo-option .combo-note { margin-left: auto; font-size: 12px; text-align: right; overflow-wrap: anywhere; min-width: 0; }
+.combo-option[aria-selected="true"] { outline: 1px solid var(--teal); outline-offset: -1px; }
+.combo-option[aria-selected="true"] .combo-name { color: var(--teal); }
+.combo-option.disabled { cursor: default; }
+.combo-option.disabled .combo-name, .combo-option.disabled .fact-type { color: var(--faint); }
+.combo-message { font-size: 12px; margin: 6px 0 0; }
+.combo-message:empty { display: none; }
+@media (pointer: coarse), (max-width: 1100px) {
+  .combo-option { min-height: var(--control-height); padding: 10px 4px; }
+  .combo input, .inline-form .inline-input { min-height: var(--control-height); font-size: 16px; }
+  .inline-form button.mini, .inline-confirm button.mini, .combo-head button.mini { min-height: var(--control-height); min-width: var(--control-height); }
+}

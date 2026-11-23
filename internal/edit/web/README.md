@@ -64,6 +64,7 @@ src/mock.ts          the mock Api
 src/dom.ts           h, reconcile, holdsFocus, setText
 src/shell.css        tokens, shared classes, shell layout
 src/<region>/        one directory per region: index.ts, its .css, its tests
+src/widgets/         shared by facts, sheet, list, history: combobox, inline forms, name checks, picker options
 ```
 
 ## Region contract
@@ -221,6 +222,29 @@ The selector returns the slices a region reads, as a tuple. The listener runs
 once at mount and then only when one of them changes by reference. Derive
 anything else inside the listener from `store.state`. Listeners may call
 actions; the resulting changes are delivered after the current pass.
+
+## Shared widgets and events
+
+`src/widgets/` holds what the Facts column, the sheet, the list view, and
+History share. It is not a region and owns no root.
+
+| File | Gives |
+| --- | --- |
+| `combobox.ts` | the ARIA combobox picker: field keeps focus, arrows move `aria-activedescendant`, disabled options stay listed with their reason |
+| `inline.ts` | `inlineName` (rename in place: Enter applies, Esc cancels, a refusal stays beside the field) and `inlineConfirm` (delete asks once, focus starts on Keep) |
+| `actions.ts` | `applyAndSettle` (apply, then wait for the model so focus can land on a new row), `previewWhileAimed`, `fixButton` |
+| `names.ts`, `pickers.ts` | pure checks for names and types, and the option lists with reasons; unit tested |
+
+Events between regions, both bubbling `CustomEvent`s on `document`:
+
+| Event | Detail | Sent by | Handled by |
+| --- | --- | --- | --- |
+| `infergo:add-read` | `{ rule }` | graph (`A`), list (`A`) | sheet: selects the rule and opens Add read |
+| `infergo:drop` | `ZoneDrop` | pointer wiring (`drag.ts`) | the zone's region; Facts requests the output for `outputs` |
+
+The store keeps a renamed rule selected: when the selected id disappears and
+exactly one new rule sits at the same file and line (`renamedRule` in
+`derive.ts`), the selection follows it, through undo and redo too.
 
 ## Focus rule
 

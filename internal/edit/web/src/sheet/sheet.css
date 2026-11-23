@@ -1,13 +1,64 @@
-/* Rule sheet stub. */
-.sheet-title { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-.sheet-where { margin-left: auto; }
-.sheet-gesture p { font-size: 13px; }
-.sheet-requirement { margin-top: 12px; overflow-wrap: anywhere; }
-.sheet-problems { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+/* Rule sheet, as in the mockups: title row with file and line, state line,
+   requirement, then Reads and Produces as rows of name, type, value, and a
+   square remove button, each with its origin underneath. */
+.sheet-title { display: flex; align-items: baseline; gap: 6px 10px; flex-wrap: wrap; min-width: 0; }
+.sheet-title h2 { min-width: 0; }
+.sheet-title h2:focus-visible { outline-offset: 2px; }
+.sheet-actions { display: flex; gap: 6px; }
+.sheet-where { margin-left: auto; overflow-wrap: anywhere; }
+.sheet-title-host:empty { display: none; }
+.sheet-title-host { margin-top: 6px; }
+.sheet-state { font-size: 13px; margin-top: 6px; min-height: 1.5em; }
+.sheet-unsupported { margin-top: 10px; }
+.sheet-problems, .sheet-row-problems { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+.sheet-row-problems { margin: 6px 0 2px; gap: 6px; }
+.sheet-problems .sheet-problem-text, .sheet-row-problems .sheet-problem-text { overflow-wrap: anywhere; }
+.sheet-gesture .row-refused { margin-top: 12px; }
+.sheet-gesture .row-refused p:first-child { margin-top: 0; }
+.sheet-cycle { list-style: none; margin: 6px 0; padding: 0; line-height: 1.5; }
+
+.sheet-requirement { margin-top: 12px; font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; cursor: text; outline-offset: 4px; }
+.sheet-requirement:hover { text-decoration: underline dotted var(--faint); text-underline-offset: 4px; }
+.sheet-requirement-form { margin-top: 12px; }
+.sheet-requirement-edit { display: block; width: 100%; resize: none; overflow: hidden; font: 15px/1.5 var(--sans); padding: 4px 6px; border: 2px solid var(--teal); min-height: 0; }
+.sheet-hint { font-size: 12px; margin-top: 4px; }
+
 .sheet-rows { list-style: none; margin: 0; padding: 0; }
-.sheet-rows li { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--rule-soft); }
-.sheet-rows li.pending { border-bottom-color: var(--teal); }
-.sheet-rows .fact-row .fact-type { margin-left: 8px; text-align: left; }
-.sheet-rows .sheet-origin { grid-column: 1; font-size: 12px; }
-.sheet-rows li > button.mini { grid-column: 2; grid-row: 1 / span 2; }
-.sheet-cycle { list-style: none; margin: 6px 0; padding: 0; }
+.sheet-rows > li { padding: 6px 0; border-bottom: 1px solid var(--rule-soft); min-width: 0; }
+.sheet-line { display: grid; grid-template-columns: minmax(0, 1fr) auto 30px; column-gap: 12px; align-items: center; min-width: 0; }
+.sheet-rows button.sheet-fact { border: 0; min-height: 26px; padding: 0; background: none; text-align: left; cursor: grab; justify-content: flex-start; }
+.sheet-rows button.sheet-fact .fact-type { margin-left: 8px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.sheet-rows button.sheet-fact[aria-pressed="true"] { outline: 1px dashed var(--teal); outline-offset: 2px; }
+.sheet-value { font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+.sheet-rows button.sheet-remove { justify-self: end; }
+.sheet-origin { font-size: 12px; overflow-wrap: anywhere; }
+.sheet-origin button.link { font-size: 12px; min-height: 20px; }
+.sheet-rows > li.lit { border-bottom-color: var(--teal); }
+.sheet-rows > li.lit .fact-name, .sheet-rows > li.lit .fact-type { color: var(--teal); }
+.sheet-rows > li.pending { border-bottom-color: var(--teal); }
+.sheet-rows > li.pending .sheet-origin { color: var(--teal); }
+.sheet-rows > li.pending button.sheet-fact { cursor: default; }
+.sheet-rows > li.removing .fact-name, .sheet-rows > li.removing .fact-type { color: var(--amber); text-decoration: line-through; }
+.sheet-rows > li.removing { border-bottom-color: var(--amber); }
+
+button.sheet-add { display: inline-block; margin-top: 10px; font-size: 14px; }
+button.off { color: var(--faint); cursor: not-allowed; text-decoration: none; }
+.sheet-host:empty { display: none; }
+.sheet-host { margin-top: 10px; }
+.sheet-form { display: grid; gap: 6px; }
+.sheet-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 120px); gap: 8px; }
+.sheet-pair label { margin: 0 0 4px; font-size: 12px; }
+.sheet-pair input { min-height: 36px; font: 12px var(--mono); }
+
+@media (pointer: coarse), (max-width: 1100px) {
+  .sheet-line { grid-template-columns: minmax(0, 1fr) auto var(--control-height); }
+  .sheet-rows button.sheet-fact { min-height: var(--control-height); }
+  .sheet-rows > li.pending button.sheet-fact { min-height: 26px; }
+  #sheet-root button.mini { min-height: var(--control-height); min-width: var(--control-height); }
+  #sheet-root button.link { min-height: var(--control-height); }
+  .sheet-pair input { min-height: var(--control-height); font-size: 16px; }
+  .sheet-requirement-edit { font-size: 16px; }
+}
+@media (max-width: 420px) {
+  .sheet-pair { grid-template-columns: minmax(0, 1fr); }
+}
