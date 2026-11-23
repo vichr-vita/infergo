@@ -179,6 +179,31 @@ export function wrap(text: string, width: number, font: Font, measure: Measure):
   return lines.length ? lines : [''];
 }
 
+/**
+ * Fits `text` into at most `maxLines` lines of `width`, for a compact node's
+ * name. A camelCase name breaks between its words; a word wider than a line,
+ * and the last line when words are left over, end in an ellipsis.
+ */
+export function compactLines(text: string, width: number, maxLines: number, measure: (text: string) => number): string[] {
+  const cut = (line: string, always: boolean) => {
+    if (!always && measure(line) <= width) return line;
+    let kept = always ? line : line.slice(0, -1);
+    while (kept && measure(`${kept}…`) > width) kept = kept.slice(0, -1);
+    return `${kept}…`;
+  };
+  const lines: string[] = [];
+  let line = '';
+  for (const word of text.split(/(?<=[\p{Ll}\p{N}])(?=\p{Lu})/u)) {
+    if (line && measure(line + word) > width) { lines.push(line); line = ''; }
+    line += word;
+  }
+  if (line) lines.push(line);
+  const count = Math.max(1, maxLines);
+  if (lines.length <= count) return lines.map(candidate => cut(candidate, false));
+  // Out of lines: the last one takes as much of the rest as fits before the ellipsis.
+  return [...lines.slice(0, count - 1).map(candidate => cut(candidate, false)), cut(lines.slice(count - 1).join(''), true)];
+}
+
 /** Lays fix links out left to right, wrapping into rows. Returns the links and the height they take. */
 function placeFixes(fixes: readonly Fix[], top: number, measure: Measure): { placed: PlacedFix[]; height: number } {
   const placed: PlacedFix[] = [];
@@ -388,7 +413,12 @@ export type Placement = {
 /** Runs dagre, top to bottom as the viewer does. Throws when dagre returns geometry that cannot be drawn. */
 export function place(input: LayoutInput): Placement {
   const graph = new Dagre<GraphLabel, NodeLabel, EdgeLabel>({ multigraph: true });
-  graph.setGraph({ rankdir: 'TB', nodesep: 36, edgesep: 24, ranksep: 70, marginx: 28, marginy: 28 });
+  // ranksep 40 rather than the viewer's 70: dagre halves it around each wire
+  // label, so 20 px stay between a label and the node it points at. Measured
+  // in Chromium on the 26-rule bonus graph, the layout goes from 3190 to 2830
+  // px tall and Fit map from 0.180 to 0.202 in a 694 × 605 canvas. Rank count
+  // fixes the rest of the height, so other rankers and node gaps did not help.
+  graph.setGraph({ rankdir: 'TB', nodesep: 36, edgesep: 24, ranksep: 40, marginx: 28, marginy: 28 });
   for (const node of input.nodes) graph.setNode(node.id, { width: node.width, height: node.height });
   for (const label of input.labels) {
     graph.setEdge(label.wire.from, label.wire.to, { width: label.width, height: label.height, labelpos: 'c' }, label.key);
