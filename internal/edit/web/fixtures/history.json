@@ -1,0 +1,28 @@
+{
+  "entries": [
+    {
+      "id": 1,
+      "label": "Added employeeBudgetCents to FinalBonus",
+      "source": "editor",
+      "files": [{ "path": "bonus.go", "added": 1, "removed": 1 }],
+      "time": "2026-11-23T09:14:02Z",
+      "undoable": false,
+      "note": "also formatted bonus.go"
+    },
+    {
+      "id": 2,
+      "label": "Changed bonus.go in another editor",
+      "source": "disk",
+      "files": [{ "path": "bonus.go", "added": 3, "removed": 2 }],
+      "time": "2026-11-23T09:15:41Z"
+    },
+    {
+      "id": 3,
+      "label": "Renamed fact cappedBonusCent to cappedBonusCents",
+      "source": "editor",
+      "files": [{ "path": "bonus.go", "added": 2, "removed": 2 }],
+      "time": "2026-11-23T09:16:20Z"
+    }
+  ],
+  "cursor": 3
+}

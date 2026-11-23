@@ -5,6 +5,8 @@
   "scripts": {
     "build:viewer": "tsc -p viewer/tsconfig.json && node viewer/build.mjs",
     "check:viewer": "tsc -p viewer/tsconfig.json && node viewer/build.mjs --check",
+    "precheck:editor": "node internal/edit/web/fixtures/typed.mjs",
+    "check:editor": "tsc -p internal/edit/web/tsconfig.json",
     "test:ui": "playwright test"
   },
   "devDependencies": {

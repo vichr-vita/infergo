@@ -1,0 +1,67 @@
+{
+  "revision": 4,
+  "cases": [
+    {
+      "id": "specialist",
+      "label": "Specialist with ten years of tenure",
+      "inputs": {
+        "employeeID": "\"E-1001\"",
+        "active": "true",
+        "tenureMonths": "120",
+        "performanceScore": "92",
+        "salaryCents": "8000000",
+        "role": "\"specialist\"",
+        "department": "\"engineering\"",
+        "trainingComplete": "true",
+        "disciplinaryHold": "false",
+        "companyTargetMet": "true",
+        "employeeBudgetCents": "2000000",
+        "managerApproved": "true",
+        "financeApproved": "true",
+        "criticalSkill": "true"
+      },
+      "trace": [
+        { "rule": "GoodPerformance", "kind": "succeeded", "facts": { "goodPerformance": "true" } },
+        { "rule": "ExceptionalPerformance", "kind": "succeeded", "facts": { "exceptionalPerformance": "true" } },
+        { "rule": "RoleRate", "kind": "succeeded", "facts": { "roleRateBps": "700" } },
+        { "rule": "BaseBonus", "kind": "succeeded", "facts": { "baseBonusCents": "560000" } },
+        { "rule": "PerformanceBonus", "kind": "succeeded", "facts": { "performanceBonusCents": "840000" } },
+        { "rule": "FinanceRequired", "kind": "succeeded", "facts": { "financeRequired": "true" } },
+        { "rule": "FinalBonus", "kind": "succeeded", "facts": { "finalBonusCents": "1049000" } }
+      ]
+    },
+    {
+      "id": "unknown-role",
+      "label": "Role that no rule recognises",
+      "inputs": {
+        "employeeID": "\"E-2002\"",
+        "active": "true",
+        "tenureMonths": "18",
+        "performanceScore": "70",
+        "salaryCents": "5000000",
+        "role": "\"contractor\"",
+        "department": "\"sales\"",
+        "trainingComplete": "true",
+        "disciplinaryHold": "false",
+        "companyTargetMet": "false",
+        "employeeBudgetCents": "500000",
+        "managerApproved": "true",
+        "financeApproved": "false",
+        "criticalSkill": "false"
+      },
+      "trace": [
+        { "rule": "GoodPerformance", "kind": "succeeded", "facts": { "goodPerformance": "true" } },
+        { "rule": "ExceptionalPerformance", "kind": "succeeded", "facts": { "exceptionalPerformance": "false" } },
+        {
+          "rule": "RoleRate",
+          "kind": "failed",
+          "error": "unknown role \"contractor\"",
+          "facts": null
+        },
+        { "rule": "BaseBonus", "kind": "not_run", "facts": null },
+        { "rule": "FinalBonus", "kind": "not_run", "facts": null }
+      ],
+      "error": "RoleRate: unknown role \"contractor\""
+    }
+  ]
+}

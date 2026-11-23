@@ -1,0 +1,820 @@
+{
+  "revision": 1,
+  "package": "bonus",
+  "files": [
+    {
+      "path": "bonus.go",
+      "hash": "5c59e116f0c9f40630b9bb2f326830de6af565606f0dd37025ed29e4f1a61e3c",
+      "state": "ok"
+    },
+    {
+      "path": "facts.go",
+      "hash": "e626186d6bcf722d2c082191661d83806e3afb6342bb4eca689639e2efe2e1d6",
+      "state": "ok"
+    }
+  ],
+  "inputs": {
+    "type": "Inputs",
+    "file": "facts.go",
+    "editable": true,
+    "fields": [
+      {
+        "field": "EmployeeID",
+        "fact": "employeeID",
+        "type": "string",
+        "line": 7
+      },
+      {
+        "field": "Active",
+        "fact": "active",
+        "type": "bool",
+        "line": 8
+      },
+      {
+        "field": "TenureMonths",
+        "fact": "tenureMonths",
+        "type": "uint16",
+        "line": 9
+      },
+      {
+        "field": "PerformanceScore",
+        "fact": "performanceScore",
+        "type": "uint8",
+        "line": 10
+      },
+      {
+        "field": "SalaryCents",
+        "fact": "salaryCents",
+        "type": "uint64",
+        "line": 11
+      },
+      {
+        "field": "Role",
+        "fact": "role",
+        "type": "Role",
+        "line": 12
+      },
+      {
+        "field": "Department",
+        "fact": "department",
+        "type": "Department",
+        "line": 13
+      },
+      {
+        "field": "TrainingComplete",
+        "fact": "trainingComplete",
+        "type": "bool",
+        "line": 14
+      },
+      {
+        "field": "DisciplinaryHold",
+        "fact": "disciplinaryHold",
+        "type": "bool",
+        "line": 15
+      },
+      {
+        "field": "CompanyTargetMet",
+        "fact": "companyTargetMet",
+        "type": "bool",
+        "line": 16
+      },
+      {
+        "field": "EmployeeBudgetCents",
+        "fact": "employeeBudgetCents",
+        "type": "uint64",
+        "line": 17
+      },
+      {
+        "field": "ManagerApproved",
+        "fact": "managerApproved",
+        "type": "bool",
+        "line": 18
+      },
+      {
+        "field": "FinanceApproved",
+        "fact": "financeApproved",
+        "type": "bool",
+        "line": 19
+      },
+      {
+        "field": "CriticalSkill",
+        "fact": "criticalSkill",
+        "type": "bool",
+        "line": 20
+      }
+    ]
+  },
+  "outputs": {
+    "type": "Outputs",
+    "file": "facts.go",
+    "editable": true,
+    "fields": [
+      {
+        "field": "FinalBonusCents",
+        "fact": "finalBonusCents",
+        "type": "uint64",
+        "line": 26
+      },
+      {
+        "field": "TotalCompensationCents",
+        "fact": "totalCompensationCents",
+        "type": "uint64",
+        "line": 27
+      },
+      {
+        "field": "PaymentReadyCents",
+        "fact": "paymentReadyCents",
+        "type": "*uint64",
+        "line": 28
+      },
+      {
+        "field": "ReviewRequired",
+        "fact": "reviewRequired",
+        "type": "*string",
+        "line": 29
+      },
+      {
+        "field": "PaymentReference",
+        "fact": "paymentReference",
+        "type": "*string",
+        "line": 30
+      }
+    ]
+  },
+  "rules": [
+    {
+      "id": "GoodPerformance",
+      "file": "bonus.go",
+      "line": 29,
+      "requirement": "GoodPerformance validates the score and requires a score above 50. BR-01.",
+      "source": "// GoodPerformance validates the score and requires a score above 50. BR-01.\nfunc GoodPerformance(performanceScore uint8) (goodPerformance bool, performanceScoreError error) {\n\tif performanceScore \u003e 100 {\n\t\treturn false, errors.New(\"performance_score must be between 0 and 100\")\n\t}\n\treturn performanceScore \u003e 50, nil\n}",
+      "sourceHash": "259b195a62830cf807c5192f34cf0af4b00eb4b95cee539b9283b71c85aa7ba7",
+      "reads": [
+        {
+          "name": "performanceScore",
+          "type": "uint8"
+        }
+      ],
+      "produces": [
+        {
+          "name": "goodPerformance",
+          "type": "bool"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": true,
+      "stub": false
+    },
+    {
+      "id": "ExceptionalPerformance",
+      "file": "bonus.go",
+      "line": 37,
+      "requirement": "ExceptionalPerformance requires a score of at least 90. BR-02.",
+      "source": "// ExceptionalPerformance requires a score of at least 90. BR-02.\nfunc ExceptionalPerformance(performanceScore uint8) (exceptionalPerformance bool) {\n\treturn performanceScore \u003e= 90\n}",
+      "sourceHash": "49754780f444729a306c9811431e9c484f3c2cd0ce704a4b7db3989747b980a3",
+      "reads": [
+        {
+          "name": "performanceScore",
+          "type": "uint8"
+        }
+      ],
+      "produces": [
+        {
+          "name": "exceptionalPerformance",
+          "type": "bool"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": false,
+      "stub": false
+    },
+    {
+      "id": "TenureEligible",
+      "file": "bonus.go",
+      "line": 42,
+      "requirement": "TenureEligible requires at least 12 months of service. BR-03.",
+      "source": "// TenureEligible requires at least 12 months of service. BR-03.\nfunc TenureEligible(tenureMonths uint16) (tenureEligible bool) {\n\treturn tenureMonths \u003e= 12\n}",
+      "sourceHash": "5737da3f0227853408a9b20d37d166486a0393e9c461013ba71f0f6936adf4c7",
+      "reads": [
+        {
+          "name": "tenureMonths",
+          "type": "uint16"
+        }
+      ],
+      "produces": [
+        {
+          "name": "tenureEligible",
+          "type": "bool"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": false,
+      "stub": false
+    },
+    {
+      "id": "ConductClear",
+      "file": "bonus.go",
+      "line": 47,
+      "requirement": "ConductClear requires no active disciplinary hold. BR-04.",
+      "source": "// ConductClear requires no active disciplinary hold. BR-04.\nfunc ConductClear(disciplinaryHold bool) (conductClear bool) {\n\treturn !disciplinaryHold\n}",
+      "sourceHash": "7e8912c412e795d70a97f1cf3c34cde6ec28412eea989857984f6c7f14fb53a1",
+      "reads": [
+        {
+          "name": "disciplinaryHold",
+          "type": "bool"
+        }
+      ],
+      "produces": [
+        {
+          "name": "conductClear",
+          "type": "bool"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": false,
+      "stub": false
+    },
+    {
+      "id": "EmploymentEligible",
+      "file": "bonus.go",
+      "line": 52,
+      "requirement": "EmploymentEligible requires active employment and eligible tenure. BR-05.",
+      "source": "// EmploymentEligible requires active employment and eligible tenure. BR-05.\nfunc EmploymentEligible(active bool, tenureEligible bool) (employmentEligible bool) {\n\treturn active \u0026\u0026 tenureEligible\n}",
+      "sourceHash": "e56f9811c18398cb4cc0efe6f64ff3e7e95c5c8156ad2aaf9bc02e762829ec46",
+      "reads": [
+        {
+          "name": "active",
+          "type": "bool"
+        },
+        {
+          "name": "tenureEligible",
+          "type": "bool"
+        }
+      ],
+      "produces": [
+        {
+          "name": "employmentEligible",
+          "type": "bool"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": false,
+      "stub": false
+    },
+    {
+      "id": "IsBonusEligible",
+      "file": "bonus.go",
+      "line": 58,
+      "requirement": "IsBonusEligible requires eligible employment, good performance, clear conduct, and completed training. BR-06.",
+      "source": "// IsBonusEligible requires eligible employment, good performance, clear conduct,\n// and completed training. BR-06.\nfunc IsBonusEligible(employmentEligible bool, goodPerformance bool, conductClear bool, trainingComplete bool) (bonusEligible bool) {\n\treturn employmentEligible \u0026\u0026 goodPerformance \u0026\u0026 conductClear \u0026\u0026 trainingComplete\n}",
+      "sourceHash": "e3877722b45c745a64074b823517428dcd7dd9853aaac99c0af66d96bc701e56",
+      "reads": [
+        {
+          "name": "employmentEligible",
+          "type": "bool"
+        },
+        {
+          "name": "goodPerformance",
+          "type": "bool"
+        },
+        {
+          "name": "conductClear",
+          "type": "bool"
+        },
+        {
+          "name": "trainingComplete",
+          "type": "bool"
+        }
+      ],
+      "produces": [
+        {
+          "name": "bonusEligible",
+          "type": "bool"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": false,
+      "stub": false
+    },
+    {
+      "id": "RoleRate",
+      "file": "bonus.go",
+      "line": 63,
+      "requirement": "RoleRate returns 5% for clerks, 7% for specialists, or 8% for managers. BR-07.",
+      "source": "// RoleRate returns 5% for clerks, 7% for specialists, or 8% for managers. BR-07.\nfunc RoleRate(role Role) (roleRateBps uint64, roleError error) {\n\tswitch role {\n\tcase Clerk:\n\t\treturn 500, nil\n\tcase Specialist:\n\t\treturn 700, nil\n\tcase Manager:\n\t\treturn 800, nil\n\tdefault:\n\t\treturn 0, fmt.Errorf(\"unknown role %q\", role)\n\t}\n}",
+      "sourceHash": "7401a0aed035b4092d17a2514210d4700008062fa57625301a6400d5f7cc9c5d",
+      "reads": [
+        {
+          "name": "role",
+          "type": "Role"
+        }
+      ],
+      "produces": [
+        {
+          "name": "roleRateBps",
+          "type": "uint64"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": true,
+      "stub": false
+    },
+    {
+      "id": "DepartmentFactor",
+      "file": "bonus.go",
+      "line": 78,
+      "requirement": "DepartmentFactor returns 110% for engineering, 120% for sales, or 100% for operations. BR-08.",
+      "source": "// DepartmentFactor returns 110% for engineering, 120% for sales, or 100% for\n// operations. BR-08.\nfunc DepartmentFactor(department Department) (departmentFactorBps uint64, departmentError error) {\n\tswitch department {\n\tcase Engineering:\n\t\treturn 11_000, nil\n\tcase Sales:\n\t\treturn 12_000, nil\n\tcase Operations:\n\t\treturn 10_000, nil\n\tdefault:\n\t\treturn 0, fmt.Errorf(\"unknown department %q\", department)\n\t}\n}",
+      "sourceHash": "c0b77532f875df3ae5e809d75fd6d4d3716d316ee06ff88bea82ced5d6553531",
+      "reads": [
+        {
+          "name": "department",
+          "type": "Department"
+        }
+      ],
+      "produces": [
+        {
+          "name": "departmentFactorBps",
+          "type": "uint64"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": true,
+      "stub": false
+    },
+    {
+      "id": "CompanyFactor",
+      "file": "bonus.go",
+      "line": 92,
+      "requirement": "CompanyFactor returns 100% when the company target is met, otherwise 50%. BR-09.",
+      "source": "// CompanyFactor returns 100% when the company target is met, otherwise 50%. BR-09.\nfunc CompanyFactor(companyTargetMet bool) (companyFactorBps uint64) {\n\tif companyTargetMet {\n\t\treturn 10_000\n\t}\n\treturn 5_000\n}",
+      "sourceHash": "754e2f1d82abe44e10e35ff60e8da7f11c9da523b108693f821a7e139727ab9e",
+      "reads": [
+        {
+          "name": "companyTargetMet",
+          "type": "bool"
+        }
+      ],
+      "produces": [
+        {
+          "name": "companyFactorBps",
+          "type": "uint64"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": false,
+      "stub": false
+    },
+    {
+      "id": "PerformanceFactor",
+      "file": "bonus.go",
+      "line": 100,
+      "requirement": "PerformanceFactor returns 150% for exceptional performance, otherwise 100%. BR-10.",
+      "source": "// PerformanceFactor returns 150% for exceptional performance, otherwise 100%. BR-10.\nfunc PerformanceFactor(exceptionalPerformance bool) (performanceFactorBps uint64) {\n\tif exceptionalPerformance {\n\t\treturn 15_000\n\t}\n\treturn 10_000\n}",
+      "sourceHash": "152d4c7e5ad4bd80fab19e753318fadbf9976d813515256eed35c37aa2716e02",
+      "reads": [
+        {
+          "name": "exceptionalPerformance",
+          "type": "bool"
+        }
+      ],
+      "produces": [
+        {
+          "name": "performanceFactorBps",
+          "type": "uint64"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": false,
+      "stub": false
+    },
+    {
+      "id": "BaseBonus",
+      "file": "bonus.go",
+      "line": 108,
+      "requirement": "BaseBonus multiplies annual salary by the role rate. BR-11.",
+      "source": "// BaseBonus multiplies annual salary by the role rate. BR-11.\nfunc BaseBonus(salaryCents uint64, roleRateBps uint64) (baseBonusCents uint64, baseBonusError error) {\n\treturn scaled(salaryCents, roleRateBps)\n}",
+      "sourceHash": "99050fa8b4d4f4c5cfb5723765243fec52c1058d924b5bd75ca4ec6c2c7ff2be",
+      "reads": [
+        {
+          "name": "salaryCents",
+          "type": "uint64"
+        },
+        {
+          "name": "roleRateBps",
+          "type": "uint64"
+        }
+      ],
+      "produces": [
+        {
+          "name": "baseBonusCents",
+          "type": "uint64"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": true,
+      "stub": false
+    },
+    {
+      "id": "PerformanceBonus",
+      "file": "bonus.go",
+      "line": 113,
+      "requirement": "PerformanceBonus applies the performance factor to the base bonus. BR-12.",
+      "source": "// PerformanceBonus applies the performance factor to the base bonus. BR-12.\nfunc PerformanceBonus(baseBonusCents uint64, performanceFactorBps uint64) (performanceBonusCents uint64, performanceBonusError error) {\n\treturn scaled(baseBonusCents, performanceFactorBps)\n}",
+      "sourceHash": "6477a94c2aaadfc5884616158e4080fa6fb82f0f35bebd7371cb1be073d6e14d",
+      "reads": [
+        {
+          "name": "baseBonusCents",
+          "type": "uint64"
+        },
+        {
+          "name": "performanceFactorBps",
+          "type": "uint64"
+        }
+      ],
+      "produces": [
+        {
+          "name": "performanceBonusCents",
+          "type": "uint64"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": true,
+      "stub": false
+    },
+    {
+      "id": "DepartmentBonus",
+      "file": "bonus.go",
+      "line": 118,
+      "requirement": "DepartmentBonus applies the department factor after performance. BR-13.",
+      "source": "// DepartmentBonus applies the department factor after performance. BR-13.\nfunc DepartmentBonus(performanceBonusCents uint64, departmentFactorBps uint64) (departmentBonusCents uint64, departmentBonusError error) {\n\treturn scaled(performanceBonusCents, departmentFactorBps)\n}",
+      "sourceHash": "465c8a5616f42239da4a6eb7bf4a3903d706e5f494f4d28363842976c3bbf760",
+      "reads": [
+        {
+          "name": "performanceBonusCents",
+          "type": "uint64"
+        },
+        {
+          "name": "departmentFactorBps",
+          "type": "uint64"
+        }
+      ],
+      "produces": [
+        {
+          "name": "departmentBonusCents",
+          "type": "uint64"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": true,
+      "stub": false
+    },
+    {
+      "id": "CompanyBonus",
+      "file": "bonus.go",
+      "line": 123,
+      "requirement": "CompanyBonus applies the company factor after the department factor. BR-14.",
+      "source": "// CompanyBonus applies the company factor after the department factor. BR-14.\nfunc CompanyBonus(departmentBonusCents uint64, companyFactorBps uint64) (companyBonusCents uint64, companyBonusError error) {\n\treturn scaled(departmentBonusCents, companyFactorBps)\n}",
+      "sourceHash": "50e67a74382ae4ab7d2d07322e5dec1a32234be0a6987b1b247d9b7ec91659f2",
+      "reads": [
+        {
+          "name": "departmentBonusCents",
+          "type": "uint64"
+        },
+        {
+          "name": "companyFactorBps",
+          "type": "uint64"
+        }
+      ],
+      "produces": [
+        {
+          "name": "companyBonusCents",
+          "type": "uint64"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": true,
+      "stub": false
+    },
+    {
+      "id": "TenureAward",
+      "file": "bonus.go",
+      "line": 128,
+      "requirement": "TenureAward adds 50,000 cents for at least 36 months of service. BR-15.",
+      "source": "// TenureAward adds 50,000 cents for at least 36 months of service. BR-15.\nfunc TenureAward(tenureMonths uint16) (tenureAwardCents uint64) {\n\tif tenureMonths \u003e= 36 {\n\t\treturn 50_000\n\t}\n\treturn 0\n}",
+      "sourceHash": "d3064c6536bd8b76bba3ebd1d521a23770414bd9a061c3b9a4a30d4a232a09c1",
+      "reads": [
+        {
+          "name": "tenureMonths",
+          "type": "uint16"
+        }
+      ],
+      "produces": [
+        {
+          "name": "tenureAwardCents",
+          "type": "uint64"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": false,
+      "stub": false
+    },
+    {
+      "id": "RetentionAward",
+      "file": "bonus.go",
+      "line": 136,
+      "requirement": "RetentionAward adds 75,000 cents for critical skills with good performance. BR-16.",
+      "source": "// RetentionAward adds 75,000 cents for critical skills with good performance. BR-16.\nfunc RetentionAward(criticalSkill bool, goodPerformance bool) (retentionAwardCents uint64) {\n\tif criticalSkill \u0026\u0026 goodPerformance {\n\t\treturn 75_000\n\t}\n\treturn 0\n}",
+      "sourceHash": "92c44d94a5d0e7beba4e12a78d4e08d3992c2a64352a382731b86ed618484af2",
+      "reads": [
+        {
+          "name": "criticalSkill",
+          "type": "bool"
+        },
+        {
+          "name": "goodPerformance",
+          "type": "bool"
+        }
+      ],
+      "produces": [
+        {
+          "name": "retentionAwardCents",
+          "type": "uint64"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": false,
+      "stub": false
+    },
+    {
+      "id": "ProposedBonus",
+      "file": "bonus.go",
+      "line": 144,
+      "requirement": "ProposedBonus sums the company-adjusted bonus and both awards. BR-17.",
+      "source": "// ProposedBonus sums the company-adjusted bonus and both awards. BR-17.\nfunc ProposedBonus(companyBonusCents uint64, tenureAwardCents uint64, retentionAwardCents uint64) (proposedBonusCents uint64, proposedBonusError error) {\n\treturn sum(companyBonusCents, tenureAwardCents, retentionAwardCents)\n}",
+      "sourceHash": "fc7d3271f7ff8d929017a83e10f933c995ed345b43249463cb9c042f908baea0",
+      "reads": [
+        {
+          "name": "companyBonusCents",
+          "type": "uint64"
+        },
+        {
+          "name": "tenureAwardCents",
+          "type": "uint64"
+        },
+        {
+          "name": "retentionAwardCents",
+          "type": "uint64"
+        }
+      ],
+      "produces": [
+        {
+          "name": "proposedBonusCents",
+          "type": "uint64"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": true,
+      "stub": false
+    },
+    {
+      "id": "EligibleBonus",
+      "file": "bonus.go",
+      "line": 149,
+      "requirement": "EligibleBonus allows a payment only for eligible employees. BR-18.",
+      "source": "// EligibleBonus allows a payment only for eligible employees. BR-18.\nfunc EligibleBonus(bonusEligible bool, proposedBonusCents uint64) (eligibleBonusCents uint64) {\n\tif bonusEligible {\n\t\treturn proposedBonusCents\n\t}\n\treturn 0\n}",
+      "sourceHash": "c7c876730dc0acdbd4490274d57b65cc1c30d07706897cba6c9ae0227db8dfc6",
+      "reads": [
+        {
+          "name": "bonusEligible",
+          "type": "bool"
+        },
+        {
+          "name": "proposedBonusCents",
+          "type": "uint64"
+        }
+      ],
+      "produces": [
+        {
+          "name": "eligibleBonusCents",
+          "type": "uint64"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": false,
+      "stub": false
+    },
+    {
+      "id": "CappedBonus",
+      "file": "bonus.go",
+      "line": 157,
+      "requirement": "CappedBonus caps the eligible bonus at the employee's allocated budget. BR-19.",
+      "source": "// CappedBonus caps the eligible bonus at the employee's allocated budget. BR-19.\nfunc CappedBonus(eligibleBonusCents uint64, employeeBudgetCents uint64) (cappedBonusCents uint64) {\n\treturn min(eligibleBonusCents, employeeBudgetCents)\n}",
+      "sourceHash": "0241c3a25d9a3ac926ddd5c07042c653e9a0a1754a987123370db31fa0d46dd2",
+      "reads": [
+        {
+          "name": "eligibleBonusCents",
+          "type": "uint64"
+        },
+        {
+          "name": "employeeBudgetCents",
+          "type": "uint64"
+        }
+      ],
+      "produces": [
+        {
+          "name": "cappedBonusCents",
+          "type": "uint64"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": false,
+      "stub": false
+    },
+    {
+      "id": "FinanceRequired",
+      "file": "bonus.go",
+      "line": 162,
+      "requirement": "FinanceRequired requires finance approval strictly above 200,000 cents. BR-20.",
+      "source": "// FinanceRequired requires finance approval strictly above 200,000 cents. BR-20.\nfunc FinanceRequired(cappedBonusCents uint64) (financeRequired bool) {\n\treturn cappedBonusCents \u003e 200_000\n}",
+      "sourceHash": "c8539dd83ba93f8b4802424bb0643d17d32b74ef5c3f4318fccd3edfed81820b",
+      "reads": [
+        {
+          "name": "cappedBonusCents",
+          "type": "uint64"
+        }
+      ],
+      "produces": [
+        {
+          "name": "financeRequired",
+          "type": "bool"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": false,
+      "stub": false
+    },
+    {
+      "id": "ApprovalsSatisfied",
+      "file": "bonus.go",
+      "line": 167,
+      "requirement": "ApprovalsSatisfied requires manager approval and any required finance approval. BR-21.",
+      "source": "// ApprovalsSatisfied requires manager approval and any required finance approval. BR-21.\nfunc ApprovalsSatisfied(managerApproved bool, financeRequired bool, financeApproved bool) (approvalsSatisfied bool) {\n\treturn managerApproved \u0026\u0026 (!financeRequired || financeApproved)\n}",
+      "sourceHash": "b5768fa7de416d742b6a7a9bd1ed20db920895bdac1eff16c92f552fafc5e7d0",
+      "reads": [
+        {
+          "name": "managerApproved",
+          "type": "bool"
+        },
+        {
+          "name": "financeRequired",
+          "type": "bool"
+        },
+        {
+          "name": "financeApproved",
+          "type": "bool"
+        }
+      ],
+      "produces": [
+        {
+          "name": "approvalsSatisfied",
+          "type": "bool"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": false,
+      "stub": false
+    },
+    {
+      "id": "FinalBonus",
+      "file": "bonus.go",
+      "line": 172,
+      "requirement": "FinalBonus releases the capped bonus only when approvals pass. BR-22.",
+      "source": "// FinalBonus releases the capped bonus only when approvals pass. BR-22.\nfunc FinalBonus(approvalsSatisfied bool, cappedBonusCents uint64) (finalBonusCents uint64) {\n\tif approvalsSatisfied {\n\t\treturn cappedBonusCents\n\t}\n\treturn 0\n}",
+      "sourceHash": "d45104d229f2ee8c1e63953f6793326a7fa4d97d33a1814b0f230ec515fbeb5a",
+      "reads": [
+        {
+          "name": "approvalsSatisfied",
+          "type": "bool"
+        },
+        {
+          "name": "cappedBonusCents",
+          "type": "uint64"
+        }
+      ],
+      "produces": [
+        {
+          "name": "finalBonusCents",
+          "type": "uint64"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": false,
+      "stub": false
+    },
+    {
+      "id": "PaymentReady",
+      "file": "bonus.go",
+      "line": 180,
+      "requirement": "PaymentReady emits a fact only for a positive final bonus. BR-23.",
+      "source": "// PaymentReady emits a fact only for a positive final bonus. BR-23.\nfunc PaymentReady(finalBonusCents uint64) (paymentReadyCents *uint64) {\n\tif finalBonusCents \u003e 0 {\n\t\treturn \u0026finalBonusCents\n\t}\n\treturn nil\n}",
+      "sourceHash": "81b098eda3a15ad2b1f20a37be6d44d3771ee76a4e97bef18efb3956110c5fdf",
+      "reads": [
+        {
+          "name": "finalBonusCents",
+          "type": "uint64"
+        }
+      ],
+      "produces": [
+        {
+          "name": "paymentReadyCents",
+          "type": "*uint64"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": false,
+      "stub": false
+    },
+    {
+      "id": "ReviewRequired",
+      "file": "bonus.go",
+      "line": 188,
+      "requirement": "ReviewRequired emits approval_pending for a positive bonus awaiting approval. BR-24.",
+      "source": "// ReviewRequired emits approval_pending for a positive bonus awaiting approval. BR-24.\nfunc ReviewRequired(cappedBonusCents uint64, approvalsSatisfied bool) (reviewRequired *string) {\n\tif cappedBonusCents \u003e 0 \u0026\u0026 !approvalsSatisfied {\n\t\treason := \"approval_pending\"\n\t\treturn \u0026reason\n\t}\n\treturn nil\n}",
+      "sourceHash": "cfd8ae0eb8fc86eb3ac0e7d7c6253207a16ab2634bb6e7d7394d9a77b1414abd",
+      "reads": [
+        {
+          "name": "cappedBonusCents",
+          "type": "uint64"
+        },
+        {
+          "name": "approvalsSatisfied",
+          "type": "bool"
+        }
+      ],
+      "produces": [
+        {
+          "name": "reviewRequired",
+          "type": "*string"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": false,
+      "stub": false
+    },
+    {
+      "id": "TotalCompensation",
+      "file": "bonus.go",
+      "line": 197,
+      "requirement": "TotalCompensation adds annual salary and the final bonus. BR-25.",
+      "source": "// TotalCompensation adds annual salary and the final bonus. BR-25.\nfunc TotalCompensation(salaryCents uint64, finalBonusCents uint64) (totalCompensationCents uint64, totalCompensationError error) {\n\treturn sum(salaryCents, finalBonusCents)\n}",
+      "sourceHash": "913a77f986faeb41dad54a99241dbe394f25b5cb14d056de6ca90eab19dc6737",
+      "reads": [
+        {
+          "name": "salaryCents",
+          "type": "uint64"
+        },
+        {
+          "name": "finalBonusCents",
+          "type": "uint64"
+        }
+      ],
+      "produces": [
+        {
+          "name": "totalCompensationCents",
+          "type": "uint64"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": true,
+      "stub": false
+    },
+    {
+      "id": "PaymentReference",
+      "file": "bonus.go",
+      "line": 202,
+      "requirement": "PaymentReference emits a reference only when a payment-ready fact exists. BR-26.",
+      "source": "// PaymentReference emits a reference only when a payment-ready fact exists. BR-26.\nfunc PaymentReference(employeeID string, paymentReadyCents *uint64) (paymentReference *string) {\n\tif paymentReadyCents == nil {\n\t\treturn nil\n\t}\n\treference := fmt.Sprintf(\"BONUS-%s-%d\", employeeID, *paymentReadyCents)\n\treturn \u0026reference\n}",
+      "sourceHash": "3b46713efa87ea35f8e395ffdb3679a13ad7b93708cc1139d0ae71f541baa69d",
+      "reads": [
+        {
+          "name": "employeeID",
+          "type": "string"
+        },
+        {
+          "name": "paymentReadyCents",
+          "type": "*uint64"
+        }
+      ],
+      "produces": [
+        {
+          "name": "paymentReference",
+          "type": "*string"
+        }
+      ],
+      "usesContext": false,
+      "returnsError": false,
+      "stub": false
+    }
+  ]
+}

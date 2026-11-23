@@ -1,0 +1,177 @@
+{
+  "revision": 4,
+  "ok": false,
+  "diagnostics": [
+    {
+      "file": "bonus.go",
+      "line": 162,
+      "column": 22,
+      "severity": "error",
+      "kind": "missing_producer",
+      "message": "rule FinanceRequired reads fact \"cappedBonusCent\", which no input or rule produces; did you mean \"cappedBonusCents\"?",
+      "rule": "FinanceRequired",
+      "fact": "cappedBonusCent",
+      "fixes": [
+        {
+          "label": "Rename to cappedBonusCents",
+          "op": { "op": "rename_fact", "fact": "cappedBonusCent", "to": "cappedBonusCents" }
+        },
+        {
+          "label": "Add input cappedBonusCent",
+          "op": { "op": "add_input", "fact": "cappedBonusCent", "type": "uint64" }
+        },
+        {
+          "label": "Create a rule that produces cappedBonusCent",
+          "op": {
+            "op": "add_rule",
+            "name": "CappedBonusCent",
+            "reads": [],
+            "produces": [{ "name": "cappedBonusCent", "type": "uint64" }],
+            "after": "FinanceRequired"
+          }
+        }
+      ]
+    },
+    {
+      "file": "bonus.go",
+      "line": 202,
+      "column": 42,
+      "severity": "error",
+      "kind": "type_mismatch",
+      "message": "rule PaymentReference reads fact \"paymentReadyCents\" as uint64, but PaymentReady produces *uint64",
+      "rule": "PaymentReference",
+      "fact": "paymentReadyCents",
+      "related": ["PaymentReady"],
+      "fixes": [
+        {
+          "label": "Use *uint64 in PaymentReference",
+          "op": { "op": "set_type", "rule": "PaymentReference", "fact": "paymentReadyCents", "type": "*uint64" }
+        }
+      ]
+    },
+    {
+      "file": "bonus.go",
+      "line": 136,
+      "column": 64,
+      "severity": "error",
+      "kind": "duplicate_producer",
+      "message": "fact \"tenureAwardCents\" has multiple producers; first declared at bonus.go:128:40",
+      "rule": "RetentionAward",
+      "fact": "tenureAwardCents",
+      "related": ["TenureAward"],
+      "fixes": [
+        {
+          "label": "Rename the result in RetentionAward",
+          "op": { "op": "rename_fact", "rule": "RetentionAward", "fact": "tenureAwardCents", "to": "retentionAwardCents" }
+        },
+        {
+          "label": "Rename the result in TenureAward",
+          "op": { "op": "rename_fact", "rule": "TenureAward", "fact": "tenureAwardCents", "to": "tenureAwardAmountCents" }
+        }
+      ]
+    },
+    {
+      "file": "bonus.go",
+      "line": 157,
+      "column": 6,
+      "severity": "error",
+      "kind": "cycle",
+      "message": "rules depend on each other: CappedBonus, FinalBonus, CappedBonus",
+      "rule": "CappedBonus",
+      "fact": "finalBonusCents",
+      "related": ["CappedBonus", "FinalBonus"],
+      "fixes": [
+        {
+          "label": "Remove finalBonusCents from CappedBonus",
+          "op": { "op": "remove_read", "rule": "CappedBonus", "fact": "finalBonusCents" }
+        },
+        {
+          "label": "Remove cappedBonusCents from FinalBonus",
+          "op": { "op": "remove_read", "rule": "FinalBonus", "fact": "cappedBonusCents" }
+        }
+      ]
+    },
+    {
+      "file": "bonus.go",
+      "line": 149,
+      "column": 68,
+      "severity": "error",
+      "kind": "signature",
+      "message": "rule EligibleBonus requires named output facts and reserves context.Context for its first input",
+      "rule": "EligibleBonus",
+      "fixes": [
+        {
+          "label": "Name the result eligibleBonusCents",
+          "op": { "op": "add_produce", "rule": "EligibleBonus", "fact": "eligibleBonusCents", "type": "uint64" }
+        }
+      ]
+    },
+    {
+      "file": "facts.go",
+      "line": 27,
+      "column": 2,
+      "severity": "error",
+      "kind": "contract",
+      "message": "Outputs maps multiple fields to fact \"finalBonusCents\"",
+      "fact": "finalBonusCents",
+      "fixes": []
+    },
+    {
+      "file": "facts.go",
+      "line": 19,
+      "column": 2,
+      "severity": "error",
+      "kind": "reserved",
+      "message": "fact \"financeApproved\" cannot use the reserved error or context.Context types",
+      "fact": "financeApproved",
+      "fixes": []
+    },
+    {
+      "file": "bonus.go",
+      "line": 168,
+      "column": 49,
+      "severity": "error",
+      "kind": "go",
+      "message": "undefined: financeApproved",
+      "rule": "ApprovalsSatisfied",
+      "fixes": []
+    },
+    {
+      "file": "bonus.go",
+      "line": 136,
+      "column": 6,
+      "severity": "warning",
+      "kind": "unused_rule",
+      "message": "rule RetentionAward is not needed by any requested output",
+      "rule": "RetentionAward",
+      "fact": "retentionAwardCents",
+      "fixes": [
+        {
+          "label": "Request retentionAwardCents as an output",
+          "op": { "op": "set_requested", "fact": "retentionAwardCents", "requested": true }
+        },
+        {
+          "label": "Delete RetentionAward",
+          "op": { "op": "delete_rule", "rule": "RetentionAward" }
+        }
+      ]
+    },
+    {
+      "file": "facts.go",
+      "line": 20,
+      "column": 2,
+      "severity": "warning",
+      "kind": "unused_input",
+      "message": "input fact \"criticalSkill\" is not used by any requested output",
+      "fact": "criticalSkill",
+      "fixes": [
+        {
+          "label": "Remove input criticalSkill",
+          "op": { "op": "remove_input", "fact": "criticalSkill" }
+        }
+      ]
+    }
+  ],
+  "pruned": ["RetentionAward"],
+  "evaluator": "kept"
+}
