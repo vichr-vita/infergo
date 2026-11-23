@@ -124,10 +124,12 @@ export function gatherFindings(graph: Graph, diagnostics: readonly Diagnostic[],
     const { rule, fact } = diagnostic;
     if (diagnostic.kind === 'cycle') {
       const members = diagnostic.related?.length ? diagnostic.related : rule ? [rule] : [];
-      for (const [index, from] of members.entries()) {
-        const to = members[(index + 1) % members.length]!;
+      // The compiler lists each rule before the one it depends on, the mock the
+      // other way round. Neighbours on the ring are matched in either direction.
+      for (const [index, member] of members.entries()) {
+        const next = members[(index + 1) % members.length]!;
         for (const wire of graph.wires) {
-          if (wire.from !== from || wire.to !== to) continue;
+          if (!(wire.from === member && wire.to === next) && !(wire.from === next && wire.to === member)) continue;
           const fix = diagnostic.fixes.find(candidate => candidate.op.op === 'remove_read' && candidate.op.rule === wire.to && candidate.op.fact === wire.fact);
           if (!cycleWires.has(wireKey(wire)) || fix) cycleWires.set(wireKey(wire), fix);
         }
