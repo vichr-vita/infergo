@@ -39,6 +39,9 @@
 //   which puts down only what this press picked up.
 // - beginDragOnly is for a source whose click already means something else
 //   (a wire label selects its wire): a drag picks the fact up, a click does not.
+// - A region that moves its targets under a still pointer (the graph pans
+//   while a drag rests near its edge) reads dragPoint() and calls reaim(), so
+//   what passes under the pointer is aimed at as if the pointer had moved.
 import type { Store } from './store';
 
 /** Detail of the 'infergo:drop' event dispatched on a data-drop-zone element. */
@@ -74,11 +77,14 @@ type Session = {
   dragging: boolean;
   /** True when this press picked the fact up, so a cancelled press puts down only its own hold. */
   pickedUp: boolean;
+  /** The newest pointer position. */
+  last: Point;
 };
 
 // Module state. There is one pointer wiring per page; installPointerWiring
 // sets the document listeners once.
 let session: Session | undefined;
+let wiredStore: Store | undefined;
 /** True while the held fact was picked up by a pointer click, so hovering aims and clicking it again puts it down. */
 let heldByClick = false;
 /** Set after a drag or a handled press, so the click the browser sends next does not act a second time. */
@@ -101,11 +107,27 @@ function start(event: PointerEvent, fact: string, store: Store, clickHolds: bool
   if (!event.isPrimary) return;
   if (event.pointerType === 'mouse' && (event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey)) return;
   void store; // the store installPointerWiring was given carries the gesture
-  session = { pointerId: event.pointerId, fact, start: { x: event.clientX, y: event.clientY }, clickHolds, dragging: false, pickedUp: false };
+  const at = { x: event.clientX, y: event.clientY };
+  session = { pointerId: event.pointerId, fact, start: at, clickHolds, dragging: false, pickedUp: false, last: at };
+}
+
+/** The client point of the pointer drag in progress, or undefined when no fact is being dragged. */
+export function dragPoint(): Point | undefined {
+  return session?.dragging && wiredStore?.state.held ? session.last : undefined;
+}
+
+/** Aims the drag in progress at whatever is now under its pointer. Does nothing without a drag. */
+export function reaim(): void {
+  const point = dragPoint();
+  if (!point || !wiredStore) return;
+  const target = hitTest(point.x, point.y);
+  setOverZone(target.zone);
+  wiredStore.aim(target.rule);
 }
 
 /** Called once by main.ts. Installs the document listeners that aim, drop, and cancel for every target. */
 export function installPointerWiring(store: Store): void {
+  wiredStore = store;
 
   // The store can drop the held fact on its own: Esc, a drop by keyboard, a
   // model that no longer has the fact. The label and the click mode go with it.
@@ -119,6 +141,7 @@ export function installPointerWiring(store: Store): void {
   document.addEventListener('pointermove', event => {
     const current = session;
     if (current && event.pointerId === current.pointerId) {
+      current.last = { x: event.clientX, y: event.clientY };
       if (!current.dragging) {
         if (!pastThreshold(current.start, { x: event.clientX, y: event.clientY })) return;
         current.dragging = true;
