@@ -92,6 +92,9 @@ export type State = {
 
 type Watcher = { run(state: State): void };
 
+/** A write about to go to the server, as `beforeWrite` hooks see it. */
+export type PendingWrite = { action: 'apply' | 'undo' | 'redo'; op?: Op };
+
 export type WatchOptions<T> = {
   /** Defaults to Object.is, or element-wise Object.is when both values are arrays. */
   equals?: (a: T, b: T) => boolean;
@@ -114,6 +117,7 @@ export class Store {
   #dirty = false;
   #previewSeq = 0;
   #unsubscribe?: () => void;
+  #beforeWrite = new Set<(write: PendingWrite) => void | Promise<void>>();
 
   private constructor(api: Api, model: Model) {
     this.#api = api;
@@ -163,6 +167,17 @@ export class Store {
     this.#watchers.add(watcher);
     if (options.immediate ?? true) listener(previous, this.#state);
     return () => { this.#watchers.delete(watcher); };
+  }
+
+  /**
+   * Runs `hook` before every apply, undo, and redo is sent, and holds the
+   * write until the promise it returns settles. The code pane uses it to save
+   * unsaved text before another region's gesture lands. Returns the
+   * unregister function.
+   */
+  beforeWrite(hook: (write: PendingWrite) => void | Promise<void>): () => void {
+    this.#beforeWrite.add(hook);
+    return () => { this.#beforeWrite.delete(hook); };
   }
 
   /** Stops the event stream and drops every watcher. */
@@ -264,7 +279,7 @@ export class Store {
 
   /** Applies an op. The new model arrives on the event stream; the receipt or refusal lands in `notice`. */
   apply(op: Op): Promise<Result<ApplyReply>> {
-    return this.#write('apply', () => this.#api.apply(op));
+    return this.#write('apply', () => this.#api.apply(op), op);
   }
 
   undo(): Promise<Result<ApplyReply>> {
@@ -354,8 +369,15 @@ export class Store {
     }
   }
 
-  async #write(action: 'apply' | 'undo' | 'redo', send: () => Promise<Result<ApplyReply>>): Promise<Result<ApplyReply>> {
+  async #write(action: 'apply' | 'undo' | 'redo', send: () => Promise<Result<ApplyReply>>, op?: Op): Promise<Result<ApplyReply>> {
     this.#set({ writing: this.#state.writing + 1 });
+    await Promise.all([...this.#beforeWrite].map(async hook => {
+      try {
+        await hook({ action, ...(op ? { op } : {}) });
+      } catch (error) {
+        console.error('A beforeWrite hook failed', error);
+      }
+    }));
     const result = await send();
     this.#set({
       writing: this.#state.writing - 1,
@@ -395,7 +417,7 @@ export class Store {
     const next: Partial<State> = {
       model, graph,
       selection: {
-        rule: selection.rule && graph.rules.has(selection.rule) ? selection.rule : defaultRule(model),
+        rule: selection.rule && graph.rules.has(selection.rule) ? selection.rule : renamedRule(this.#state.model, model, selection.rule) ?? defaultRule(model),
         ...(selection.fact && graph.facts.has(selection.fact) ? { fact: selection.fact } : {}),
         ...(wire ? { wire } : {}),
       },
@@ -429,6 +451,18 @@ function noticeFor(result: Exclude<Result<unknown>, { kind: 'ok' }>): Notice {
 function defaultRule(model: Model): string | undefined {
   const first = model.outputs.fields[0]?.fact;
   return model.rules.find(rule => rule.produces.some(fact => fact.name === first))?.id ?? model.rules[0]?.id;
+}
+
+/**
+ * The new id of a rule that a model change renamed: a rule the old model did
+ * not have, in the same file, whose func line is where the old rule's was. Lets
+ * the selection follow a rename made in the code pane, the sheet, or an IDE.
+ */
+function renamedRule(previous: Model, model: Model, id: string | undefined): string | undefined {
+  const old = id ? previous.rules.find(rule => rule.id === id) : undefined;
+  if (!old) return undefined;
+  const known = new Set(previous.rules.map(rule => rule.id));
+  return model.rules.find(rule => !known.has(rule.id) && rule.file === old.file && rule.line === old.line)?.id;
 }
 
 // ---- Selectors. Pure functions of State that several regions need. ---------
