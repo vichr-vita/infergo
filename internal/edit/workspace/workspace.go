@@ -720,7 +720,12 @@ func (w *Workspace) buildModelLocked() {
 			files[path] = f.parsed
 		}
 	}
-	model := source.Parse(files, w.config)
+	model, err := parse(files, w.config)
+	if err != nil {
+		// Keep drawing the last model rather than ending the session.
+		w.logf("infergen: %v", err)
+		model = w.model
+	}
 	model.Revision = w.revision
 	model.Files = slices.Clone(model.Files)
 	for i := range model.Files {

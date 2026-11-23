@@ -531,3 +531,55 @@ func TestStreamsDoNotBlockOnSlowPages(t *testing.T) {
 		t.Fatalf("slow stream got %v %s", names, payloads)
 	}
 }
+
+func TestPreviewThenApply(t *testing.T) {
+	s := start(t, bonusModule(t), fakeCheck(new(atomic.Int32)))
+	events := s.subscribe(t)
+	path := filepath.Join(s.dir, "bonus.go")
+	before := readFile(t, path)
+	request := protocol.OpRequest{Op: protocol.Op{Op: protocol.OpAddRead, Rule: "ReviewRequired", Fact: "financeRequired", Type: "bool"}}
+	var preview protocol.PreviewReply
+	if status := s.post(t, protocol.PathPreview, request, &preview); status != http.StatusOK || len(preview.Changes) != 1 ||
+		!strings.Contains(preview.Changes[0].After, "financeRequired bool") {
+		t.Fatalf("preview: status %d, %+v", status, preview)
+	}
+	if readFile(t, path) != before {
+		t.Fatal("preview wrote")
+	}
+	var applied protocol.ApplyReply
+	if status := s.post(t, protocol.PathApply, request, &applied); status != http.StatusOK || applied.Revision != 2 || applied.Receipt.ID != 1 {
+		t.Fatalf("apply: status %d, %+v", status, applied)
+	}
+	model := next(t, events, protocol.EventModel, func(m protocol.Model) bool { return m.Revision == 2 })
+	for _, rule := range model.Rules {
+		if rule.ID == "ReviewRequired" && rule.Reads[len(rule.Reads)-1].Name != "financeRequired" {
+			t.Fatalf("ReviewRequired reads %+v", rule.Reads)
+		}
+	}
+	var undone protocol.ApplyReply
+	if status := s.post(t, protocol.PathUndo, nil, &undone); status != http.StatusOK || undone.Revision != 3 {
+		t.Fatalf("undo: status %d, %+v", status, undone)
+	}
+	if readFile(t, path) != before {
+		t.Fatal("undo did not restore bonus.go")
+	}
+}
+
+func TestReadThatClosesCycleIsRefused(t *testing.T) {
+	s := start(t, bonusModule(t), fakeCheck(new(atomic.Int32)))
+	path := filepath.Join(s.dir, "bonus.go")
+	before := readFile(t, path)
+	// FinanceRequired reads cappedBonusCents, so CappedBonus cannot read
+	// financeRequired.
+	request := protocol.OpRequest{Op: protocol.Op{Op: protocol.OpAddRead, Rule: "CappedBonus", Fact: "financeRequired", Type: "bool"}}
+	for _, route := range []string{protocol.PathPreview, protocol.PathApply} {
+		var refusal protocol.Refusal
+		status := s.post(t, route, request, &refusal)
+		if status != protocol.RefusalStatus || refusal.Reason != protocol.ReasonCycle || strings.Join(refusal.Related, ",") != "CappedBonus,FinanceRequired" {
+			t.Errorf("%s: status %d, %+v", route, status, refusal)
+		}
+	}
+	if readFile(t, path) != before {
+		t.Fatal("a refused read wrote")
+	}
+}

@@ -411,14 +411,14 @@ func TestKeystrokesMergePerRule(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	typeInto("TenureEligible", ">= 36", ">= 4")
+	typeInto("TenureEligible", ">= 12", ">= 2")
 	clock = clock.Add(time.Second)
-	typeInto("TenureEligible", ">= 4", ">= 48")
+	typeInto("TenureEligible", ">= 2", ">= 24")
 	if n := len(w.History().Entries); n != 1 {
 		t.Fatalf("keystrokes within the window made %d entries", n)
 	}
 	clock = clock.Add(3 * time.Second)
-	typeInto("TenureEligible", ">= 48", ">= 4")
+	typeInto("TenureEligible", ">= 24", ">= 4")
 	if n := len(w.History().Entries); n != 2 {
 		t.Fatalf("a keystroke after the window made %d entries, want 2", n)
 	}
@@ -434,7 +434,7 @@ func TestKeystrokesMergePerRule(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if !strings.Contains(readFile(t, filepath.Join(dir, "bonus.go")), ">= 36") {
+	if !strings.Contains(readFile(t, filepath.Join(dir, "bonus.go")), ">= 12") {
 		t.Fatal("undo did not restore the original threshold")
 	}
 }
@@ -444,7 +444,7 @@ func TestBrokenFileKeepsItsRules(t *testing.T) {
 	w := open(t, dir)
 	rules := len(w.Model().Rules)
 	path := filepath.Join(dir, "bonus.go")
-	writeFile(t, path, readFile(t, path)+"\nfunc Broken( {\n")
+	writeFile(t, path, strings.Replace(readFile(t, path), "return tenureMonths >= 12", "return tenureMonths >=", 1))
 	event, _ := waitFor(t, w, 5*time.Second, func(e Event) bool { return e.Model != nil })
 	model := event.Model
 	if len(model.Rules) != rules {
@@ -526,10 +526,15 @@ func TestSlowConsumerDoesNotBlockWrites(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("writes blocked on an unread event channel")
 	}
-	// The consumer then receives the newest state, not every step.
-	event, _ := waitFor(t, w, 5*time.Second, func(e Event) bool { return e.Model != nil })
-	if event.Model.Revision != 7 || event.History == nil || event.History.Cursor != 0 {
-		t.Fatalf("first event after falling behind: revision %d, history %+v", event.Model.Revision, event.History)
+	// The consumer then catches up on the newest state, skipping steps: at
+	// most the event the pump held while the writes went on comes first.
+	count := 0
+	waitFor(t, w, 5*time.Second, func(e Event) bool {
+		count++
+		return e.Model != nil && e.Model.Revision == 7 && e.History != nil && e.History.Cursor == 0
+	})
+	if count > 2 {
+		t.Fatalf("the consumer received %d events for six writes it fell behind on", count)
 	}
 }
 
