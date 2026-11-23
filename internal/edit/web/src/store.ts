@@ -4,7 +4,7 @@
 // click, keyboard) and every server call. README.md has a worked example.
 import type { Api, Connection, Result } from './api';
 import {
-  addReadOp, deriveGraph, opRule, sameOp, verdict, verdictMessage, verdicts, wireKey,
+  addReadOp, deriveGraph, opRule, renamedRule, sameOp, verdict, verdictMessage, verdicts, wireKey,
   type Graph, type Verdict, type Wire,
 } from './derive';
 import type {
@@ -395,7 +395,7 @@ export class Store {
     const next: Partial<State> = {
       model, graph,
       selection: {
-        rule: selection.rule && graph.rules.has(selection.rule) ? selection.rule : defaultRule(model),
+        rule: (selection.rule && renamedRule(this.#state.graph, graph, selection.rule)) ?? defaultRule(model),
         ...(selection.fact && graph.facts.has(selection.fact) ? { fact: selection.fact } : {}),
         ...(wire ? { wire } : {}),
       },
