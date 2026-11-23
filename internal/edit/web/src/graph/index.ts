@@ -407,6 +407,9 @@ class Canvas {
     this.#compactGroups.set(g, compact);
   }
 
+  /** Keys of the wire labels drawn at the last compact pass. */
+  #shownLabels = new Set<string>();
+
   // Width of compact text in screen pixels: the name font measured at 14 px, scaled to 10.
   #compactMeasure = (text: string) => this.#measure(text, 'name') * compactText.size / 14;
 
@@ -421,7 +424,11 @@ class Canvas {
     if (this.#aimLabel) setAttributes(this.#aimLabel.element, { transform: `translate(${round(this.#aimLabel.x)} ${round(this.#aimLabel.y)}) scale(${round(1 / k * 1000) / 1000})` });
     const scale = compactText.size / 12 / k;
     const shown: Rect[] = [];
-    const labels = [...this.#labels.entries()].sort(([, a], [, b]) => Number(b.element.classList.contains('chosen')) - Number(a.element.classList.contains('chosen')));
+    // The chosen wire's label wins a place first, then labels already on screen,
+    // so a label under the pointer is not replaced by one its own hover lit.
+    const rank = (key: string, element: Element) => (element.classList.contains('chosen') ? 2 : 0) + (this.#shownLabels.has(key) ? 1 : 0);
+    const labels = [...this.#labels.entries()].sort(([keyA, a], [keyB, b]) => rank(keyB, b.element) - rank(keyA, a.element));
+    const nowShown = new Set<string>();
     for (const [key, item] of labels) {
       const inner = item.element.firstElementChild;
       const width = this.#labelWidths.get(key);
@@ -431,11 +438,15 @@ class Canvas {
       if (this.#compact && item.element.classList.contains('keep')) {
         const grown = { x: rect.x + width / 2 * (1 - scale), y: rect.y + 12 * (1 - scale), width: width * scale, height: 24 * scale };
         crowded = shown.some(other => overlaps(grown, other));
-        if (!crowded) shown.push(grown);
+        if (!crowded) {
+          shown.push(grown);
+          nowShown.add(key);
+        }
       }
       item.element.classList.toggle('crowded', crowded);
       setAttributes(inner, { transform: this.#compact ? `translate(${round(width / 2)} 12) scale(${round(scale * 1000) / 1000}) translate(${round(-width / 2)} -12)` : undefined });
     }
+    this.#shownLabels = nowShown;
   }
 
   // A compact node's name, in screen pixels inside a group scaled by 1/k: as

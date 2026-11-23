@@ -91,9 +91,9 @@ test('item 3: selecting a wire and pressing Delete removes the parameter, and th
   await expect(page.locator('#graph-root .graph-wire[data-wire="ApprovalsSatisfied>approvalsSatisfied>ReviewRequired"]')).toHaveCount(0);
 });
 
-// Product bug, not a test fault: at Fit map, hovering the selected rule's label marks its fact lit, which reveals the same fact's
-// overlapping label on another wire, hides the hovered one as crowded, and the press then lands on that other wire.
-test.fixme("item 3: at Fit map, pressing the selected rule's wire label selects that wire and not an overlapping label of the same fact", async ({ app: page }) => {
+// Hovering a label lights its fact, which makes the same fact's label on another wire eligible too.
+// The label already under the pointer must keep its place.
+test("item 3: at Fit map, pressing the selected rule's wire label selects that wire and not an overlapping label of the same fact", async ({ app: page }) => {
   await selectRule(page, 'ReviewRequired');
   const label = page.locator('#graph-root .graph-label[data-wire="ApprovalsSatisfied>approvalsSatisfied>ReviewRequired"]');
   const box = await label.boundingBox();
