@@ -29,6 +29,9 @@ import (
 // declaration's text.
 const maxBodyBytes = 1 << 20
 
+// shutdownGrace is how long Run lets requests finish after its context ends.
+const shutdownGrace = time.Second
+
 // keepAlive is how often an idle event stream sends a comment, so that a
 // closed connection is noticed.
 const keepAlive = 20 * time.Second
@@ -142,11 +145,17 @@ func (s *Server) Run(ctx context.Context) error {
 	case err = <-served:
 	}
 	// Cancelling ctx ends the event streams, which would otherwise keep
-	// Shutdown waiting.
+	// Shutdown waiting. Shutdown also waits for connections that were opened
+	// but never carried a request, as browsers open ahead of time, so after
+	// in-flight requests have had a moment the rest are closed.
 	stop()
-	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdown, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 	defer cancel()
-	if shutdownErr := server.Shutdown(shutdown); err == nil {
+	if shutdownErr := server.Shutdown(shutdown); errors.Is(shutdownErr, context.DeadlineExceeded) {
+		if closeErr := server.Close(); err == nil {
+			err = closeErr
+		}
+	} else if err == nil {
 		err = shutdownErr
 	}
 	<-forwarded
@@ -171,10 +180,12 @@ func (s *Server) forward(ctx context.Context) {
 			}
 			if event.Model != nil {
 				s.hub.publish(protocol.EventModel, *event.Model)
-				s.requestCheck()
 			}
 			if event.History != nil {
 				s.hub.publish(protocol.EventHistory, *event.History)
+			}
+			if event.Model != nil {
+				s.requestCheck()
 			}
 		}
 	}

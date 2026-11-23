@@ -162,7 +162,7 @@ func ruleAt(model protocol.Model, file string, line int) string {
 // wire of a cycle; name an unnamed result; request or delete an unused rule;
 // remove an unused input. Other kinds have no mechanical repair.
 func fixes(d generate.Diagnostic, rule string, model protocol.Model) []protocol.Fix {
-	var fixes []protocol.Fix
+	fixes := []protocol.Fix{}
 	add := func(label string, op protocol.Op) {
 		if op.Validate() == nil {
 			fixes = append(fixes, protocol.Fix{Label: label, Op: op})
