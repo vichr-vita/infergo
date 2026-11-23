@@ -1,0 +1,13 @@
+/* Rule sheet stub. */
+.sheet-title { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.sheet-where { margin-left: auto; }
+.sheet-gesture p { font-size: 13px; }
+.sheet-requirement { margin-top: 12px; overflow-wrap: anywhere; }
+.sheet-problems { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.sheet-rows { list-style: none; margin: 0; padding: 0; }
+.sheet-rows li { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--rule-soft); }
+.sheet-rows li.pending { border-bottom-color: var(--teal); }
+.sheet-rows .fact-row .fact-type { margin-left: 8px; text-align: left; }
+.sheet-rows .sheet-origin { grid-column: 1; font-size: 12px; }
+.sheet-rows li > button.mini { grid-column: 2; grid-row: 1 / span 2; }
+.sheet-cycle { list-style: none; margin: 6px 0; padding: 0; }

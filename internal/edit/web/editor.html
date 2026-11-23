@@ -1,1 +1,73 @@
-<!doctype html><meta charset="utf-8"><title>Infergo editor</title><p>The editor bundle is not built yet.</p>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Infergo editor</title>
+  <link rel="stylesheet" href="editor.css">
+  <script src="editor.js" defer></script>
+</head>
+<body>
+<!-- The shell's skeleton. main.ts fills the header, summary, and status line,
+     and mounts one region into each element with a data-region attribute. -->
+<div id="boot" class="boot" role="status">Loading the ruleset</div>
+<noscript><p class="boot">The editor needs JavaScript.</p></noscript>
+<div class="app" id="app" hidden>
+  <header class="masthead">
+    <div class="title"><h1 id="package"></h1><span class="mono" id="files"></span></div>
+    <div class="field find"><label for="find">Find a rule or fact</label><input id="find" type="search" autocomplete="off" spellcheck="false" placeholder="Name or fact"></div>
+    <div class="field scenario"><label for="scenario">Scenario</label><select id="scenario" disabled><option value="">Values off</option></select></div>
+    <div class="history-buttons"><button id="undo" type="button" disabled>Undo</button><button id="redo" type="button" disabled>Redo</button></div>
+  </header>
+  <p class="summary" id="summary"></p>
+  <div class="workspace" id="workspace">
+    <section class="column side" id="facts-column" aria-label="Facts and history">
+      <button class="column-strip" type="button" data-toggle="facts" aria-label="Show the Facts column" hidden>Facts</button>
+      <div class="column-body">
+        <div class="tabs" role="tablist" aria-label="Left column">
+          <button type="button" role="tab" id="tab-facts" aria-controls="facts-root" data-tab="facts">Facts</button>
+          <button type="button" role="tab" id="tab-history" aria-controls="history-root" data-tab="history">History</button>
+        </div>
+        <div id="facts-root" role="tabpanel" aria-labelledby="tab-facts" data-region="facts"></div>
+        <div id="history-root" role="tabpanel" aria-labelledby="tab-history" data-region="history" hidden></div>
+      </div>
+    </section>
+    <section class="column middle" id="middle-column" aria-label="Rules">
+      <div id="graph-root" data-region="graph"></div>
+      <div id="list-root" data-region="list" hidden></div>
+    </section>
+    <section class="column side" id="rule-column" aria-label="Selected rule">
+      <button class="column-strip" type="button" data-toggle="rule" aria-label="Show the Rule column" hidden>Rule</button>
+      <div class="column-body">
+        <div class="rule-detail" id="rule-detail">
+          <div id="sheet-root" data-region="sheet"></div>
+          <div id="code-root" data-region="code"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+  <footer class="status" id="status"></footer>
+</div>
+<div class="sr-only" id="announcer" role="status" aria-live="polite"></div>
+<dialog class="keys" id="keys" aria-labelledby="keys-title">
+  <div class="keys-head"><h2 id="keys-title">Keys</h2><button type="button" id="keys-close">Close</button></div>
+  <table>
+    <thead><tr><th scope="col">Key</th><th scope="col">Does</th><th scope="col">Where</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>W</kbd></td><td>Pick up the focused fact</td><td>Facts, sheet, graph</td></tr>
+      <tr><td><kbd>Arrows</kbd></td><td>Step through rules that can take the held fact. Otherwise move along wires: Up to a producer, Down to a reader, Left and Right to siblings</td><td>Graph</td></tr>
+      <tr><td><kbd>Enter</kbd></td><td>Drop the held fact. Otherwise open the code pane</td><td>Graph, list</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Put the held fact down</td><td>Anywhere</td></tr>
+      <tr><td><kbd>A</kbd></td><td>Add a read to the selected rule</td><td>Sheet, graph</td></tr>
+      <tr><td><kbd>F2</kbd></td><td>Rename the focused rule or fact</td><td>Graph, sheet, facts</td></tr>
+      <tr><td><kbd>Delete</kbd></td><td>Remove the selected read, wire, or rule</td><td>Graph, sheet</td></tr>
+      <tr><td><kbd>N</kbd></td><td>New rule</td><td>Graph</td></tr>
+      <tr><td><kbd>Ctrl Z</kbd></td><td>Undo the newest change. In the code pane, undo typing</td><td>Anywhere</td></tr>
+      <tr><td><kbd>Ctrl Shift Z</kbd></td><td>Redo</td><td>Anywhere</td></tr>
+      <tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>Hide or show the Facts and Rule columns</td><td>Wide layout</td></tr>
+      <tr><td><kbd>?</kbd></td><td>This list</td><td>Anywhere</td></tr>
+    </tbody>
+  </table>
+</dialog>
+</body>
+</html>
