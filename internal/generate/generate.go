@@ -67,6 +67,72 @@ func (n Note) String() string {
 	return n.Position.String() + ": " + n.Message
 }
 
+// Severity values of a Diagnostic.
+const (
+	SeverityError   = "error"
+	SeverityWarning = "warning"
+)
+
+// Kind values of a Diagnostic. Each finding the compiler can report has exactly
+// one, so a caller can attach a repair by kind.
+const (
+	// KindMissingProducer: a rule or output reads a fact that no input or rule produces.
+	KindMissingProducer = "missing_producer"
+	// KindTypeMismatch: a reader's type differs from the type its producer declares.
+	KindTypeMismatch = "type_mismatch"
+	// KindDuplicateProducer: a fact has more than one producer, input or rule.
+	KindDuplicateProducer = "duplicate_producer"
+	// KindCycle: rules depend on each other in a loop.
+	KindCycle = "cycle"
+	// KindSignature: a rule function has an unsupported shape.
+	KindSignature = "signature"
+	// KindContract: the Inputs or Outputs struct cannot serve as a contract.
+	KindContract = "contract"
+	// KindReserved: the package declares a name that generated code needs.
+	KindReserved = "reserved"
+	// KindGo: the Go compiler or parser rejected the package.
+	KindGo = "go"
+	// KindUnusedRule: warning for a rule that no requested output needs.
+	KindUnusedRule = "unused_rule"
+	// KindUnusedInput: warning for an input that nothing reads.
+	KindUnusedInput = "unused_input"
+)
+
+// Diagnostic is one finding as data, for tools that draw it on the thing it is
+// about. Position is relative to Config.Dir for a file inside it and is invalid
+// when the finding has no source location. Its Offset is set only where the
+// compiler knows it, which excludes kind go. Message is complete without the
+// position, including any suggestion. Rule and Fact name the rule and fact the
+// finding is about, when it is about one. Related carries the other rules
+// involved: for a cycle, every rule on it in dependency order, each depending on
+// the next and the last on the first; for a duplicate producer, the first
+// producer when it is a rule; for a type mismatch, the producer when it is a
+// rule. Suggestion is the closest known fact for a missing producer.
+type Diagnostic struct {
+	Severity   string // SeverityError or SeverityWarning.
+	Kind       string // One of the Kind constants.
+	Position   token.Position
+	Message    string
+	Rule, Fact string
+	Related    []string
+	Suggestion string
+}
+
+// note is the Diagnostic as Generate prints it.
+func (d Diagnostic) note() Note { return Note{d.Position, d.Message} }
+
+// Report is what Check found. Diagnostics holds every error, or, when there is
+// none, the warnings. Result is nil when any diagnostic is an error. Pruned names
+// the rules that no requested output needs, in source order, and is set only when
+// Result is, because pruning is meaningful only for a valid graph.
+type Report struct {
+	Diagnostics []Diagnostic
+	Result      *Result
+	Pruned      []string
+	// failure is the error Generate returns for the errors in Diagnostics.
+	failure error
+}
+
 type fact struct {
 	name     string
 	typ      types.Type
@@ -105,7 +171,7 @@ type compiler struct {
 	rules   []rule
 	inputs  []field
 	outputs []field
-	errors  []Note
+	errors  []Diagnostic
 	// unnamed holds the types of facts declared without a usable name. A missing
 	// fact of one of these types may be that declaration, so it is not reported.
 	unnamed []types.Type
@@ -120,13 +186,38 @@ type compiler struct {
 // order, each naming the package. A rejected declaration can hide a related
 // error until it is fixed, so a report is not always complete, but generation
 // fails either way. The returned error unwraps to one error per report entry.
+// It prints the diagnostics Check returns, so the two cannot disagree.
 func Generate(config Config) (Result, error) {
+	report, err := Check(config)
+	if err != nil {
+		return Result{}, err
+	}
+	if report.failure != nil {
+		return Result{}, report.failure
+	}
+	return *report.Result, nil
+}
+
+// Check compiles the ruleset like Generate, but returns every finding as data
+// instead of one joined error. Errors come back as diagnostics of severity
+// "error" and Result is nil. A clean ruleset returns a Result, with the unused
+// rules and inputs as warnings and the names of the pruned rules in Pruned.
+//
+// The returned error is for a ruleset about which nothing can be said: an
+// invalid config, a directory that is not a loadable Go package (no buildable
+// files, mixed package clauses, an unusable module), rules that sit in the
+// infergo runtime package, a rule file the package does not contain, or a
+// failure to emit source. Everything the compiler can attribute to the code,
+// including syntax and type errors with a position, is a diagnostic. Like
+// Generate, Check can stop early, so a rejected contract can hide errors that
+// would follow it.
+func Check(config Config) (Report, error) {
 	if config.Inputs == "" || config.Outputs == "" || len(config.RuleFiles) == 0 || config.OutputFile == "" {
-		return Result{}, fmt.Errorf("inputs, outputs, rule files, and output file are required")
+		return Report{}, fmt.Errorf("inputs, outputs, rule files, and output file are required")
 	}
 	dir, err := filepath.Abs(config.Dir)
 	if err != nil {
-		return Result{}, err
+		return Report{}, err
 	}
 	absolute := func(name string) string {
 		if !filepath.IsAbs(name) {
@@ -136,26 +227,46 @@ func Generate(config Config) (Result, error) {
 	}
 	output := absolute(config.OutputFile)
 	if filepath.Dir(output) != dir || filepath.Ext(output) != ".go" || strings.HasSuffix(output, "_test.go") {
-		return Result{}, fmt.Errorf("output must be a non-test .go file in the ruleset directory")
+		return Report{}, fmt.Errorf("output must be a non-test .go file in the ruleset directory")
 	}
 	selected := make(map[string]bool, len(config.RuleFiles))
 	for _, name := range config.RuleFiles {
 		path := absolute(name)
 		if filepath.Dir(path) != dir || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") || path == output {
-			return Result{}, fmt.Errorf("rule file %q must be a non-test .go file in the ruleset directory, separate from output", name)
+			return Report{}, fmt.Errorf("rule file %q must be a non-test .go file in the ruleset directory, separate from output", name)
 		}
 		if selected[path] {
-			return Result{}, fmt.Errorf("rule file %q is selected twice", name)
+			return Report{}, fmt.Errorf("rule file %q is selected twice", name)
 		}
 		selected[path] = true
 	}
 	packageClause, err := parser.ParseFile(token.NewFileSet(), absolute(config.RuleFiles[0]), nil, parser.PackageClauseOnly)
 	if err != nil {
-		return Result{}, fmt.Errorf("read ruleset package: %w", err)
+		return Report{}, fmt.Errorf("read ruleset package: %w", err)
 	}
 	c := &compiler{dir: dir, facts: make(map[string]fact)}
-	if err := c.load(config, output, packageClause.Name.Name); err != nil {
-		return Result{}, err
+	return c.check(config, output, selected, packageClause.Name.Name)
+}
+
+// stop is a finding that ends analysis early: the diagnostics for the caller
+// and the error Generate returns for them, which is the joined text of the
+// errors as they are printed.
+type stop struct {
+	diagnostics []Diagnostic
+	failure     error
+}
+
+// check is the single compile path behind Generate and Check, after the config
+// has been validated. It returns the report, whose failure field holds what
+// Generate returns when the report has errors. The error is for a ruleset that
+// cannot be analyzed at all.
+func (c *compiler) check(config Config, output string, selected map[string]bool, packageName string) (Report, error) {
+	stopped, err := c.load(config, output, packageName)
+	if err != nil {
+		return Report{}, err
+	}
+	if stopped != nil {
+		return Report{Diagnostics: stopped.diagnostics, failure: stopped.failure}, nil
 	}
 	inputs, ok := c.fields(config.Inputs)
 	c.inputsUnknown = !ok
@@ -182,11 +293,11 @@ func Generate(config Config) (Result, error) {
 	for _, path := range paths {
 		file, ok := files[path]
 		if !ok {
-			return Result{}, c.packageError(fmt.Sprintf("rule file %q is missing or excluded by build constraints", c.relative(path)))
+			return Report{}, c.packageError(fmt.Sprintf("rule file %q is missing or excluded by build constraints", c.relative(path)))
 		}
 		raw, err := os.ReadFile(path)
 		if err != nil {
-			return Result{}, fmt.Errorf("read rule source: %w", err)
+			return Report{}, fmt.Errorf("read rule source: %w", err)
 		}
 		for _, declaration := range file.Decls {
 			fn, ok := declaration.(*ast.FuncDecl)
@@ -201,19 +312,25 @@ func Generate(config Config) (Result, error) {
 		}
 	}
 	c.validate()
-	if err := c.failure(); err != nil {
-		return Result{}, err
+	if stopped := c.errorStop(); stopped != nil {
+		return Report{Diagnostics: stopped.diagnostics, failure: stopped.failure}, nil
 	}
 	ids := c.retainedRules()
 	ruleset := c.ruleset(ids)
 	source, err := c.emit(config, ids, ruleset)
 	if err != nil {
-		return Result{}, err
+		return Report{}, err
 	}
-	return Result{
+	warnings, pruned := c.unusedDeclarations(ids)
+	var notes []Note
+	for _, warning := range warnings {
+		notes = append(notes, warning.note())
+	}
+	result := &Result{
 		Source: source, Ruleset: ruleset, Package: c.pkg.PkgPath, PackageName: c.pkg.Name,
-		Rules: len(ids), Notes: c.unusedDeclarations(ids),
-	}, nil
+		Rules: len(ids), Notes: notes,
+	}
+	return Report{Diagnostics: warnings, Result: result, Pruned: pruned}, nil
 }
 
 // stripCarriageReturns keeps embedded text independent of the file's line
@@ -228,47 +345,47 @@ func stripCarriageReturns(text string) string {
 // non-test file, so a second load declares stubs for it. The partial first load
 // has already caught the contract and naming problems that would otherwise show
 // up as confusing errors in the stubs.
-func (c *compiler) load(config Config, output, packageName string) error {
+func (c *compiler) load(config Config, output, packageName string) (*stop, error) {
 	pkg, err := loadPackage(c.dir, output, []byte("package "+packageName+"\n"))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	c.pkg = pkg
 	if !recoverable(pkg) {
-		return errors.Join(c.loadFailures()...)
+		return c.loadStop()
 	}
 	if pkg.PkgPath == runtimePath {
-		return fmt.Errorf("rules must be in a separate package from the infergo runtime")
+		return nil, fmt.Errorf("rules must be in a separate package from the infergo runtime")
 	}
 	for _, reserved := range []string{"Evaluate", "EvaluateTrace", "Ruleset", "ViewerCase", "ExportHTML", "_infergoPlan"} {
 		if obj := pkg.Types.Scope().Lookup(reserved); obj != nil {
-			c.errorf(obj.Pos(), "%s is reserved for generated code", reserved)
+			c.errorf(Diagnostic{Kind: KindReserved}, obj.Pos(), "%s is reserved for generated code", reserved)
 		}
 	}
 	if len(pkg.Errors) == 0 {
-		return nil
+		return nil, nil
 	}
 	c.contract(config.Inputs)
 	c.contract(config.Outputs)
-	if err := c.failure(); err != nil {
-		return err
+	if stopped := c.errorStop(); stopped != nil {
+		return stopped, nil
 	}
 	stubbed, err := loadPackage(c.dir, output, apiStubs(pkg.Types.Scope(), packageName, config))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// An error inside the stubs would point at a file the reader cannot open. They
 	// import only the runtime and the standard library, and the contracts passed
 	// above, so such an error means the module can't load the runtime. The first
 	// load's errors, still in c.pkg, show what that leaves unresolved.
 	if slices.ContainsFunc(stubbed.Errors, func(err packages.Error) bool { return strings.HasPrefix(err.Pos, output+":") }) {
-		return errors.Join(slices.Insert(c.loadFailures(), 0, c.packageError("load ruleset: "+runtimeUnavailable))...)
+		return nil, errors.Join(slices.Insert(c.loadFailures(), 0, c.packageError("load ruleset: "+runtimeUnavailable))...)
 	}
 	c.pkg = stubbed
 	if len(c.pkg.Errors) != 0 {
-		return errors.Join(c.loadFailures()...)
+		return c.loadStop()
 	}
-	return nil
+	return nil, nil
 }
 
 func loadPackage(dir, output string, overlay []byte) (*packages.Package, error) {
@@ -339,6 +456,59 @@ func (c *compiler) loadFailures() []error {
 	return failures
 }
 
+// loadStop turns the package's load errors into the end of analysis. Errors
+// with a source position, which are syntax and type errors, become diagnostics of
+// kind go. An error without one means the directory is not a package that can be
+// analyzed, such as mixed package clauses or no buildable files, so it comes back
+// as an error. Either way Generate prints the same text.
+func (c *compiler) loadStop() (*stop, error) {
+	if len(c.pkg.Errors) == 0 {
+		return nil, c.packageError("load ruleset: package has no type information")
+	}
+	failure := errors.Join(c.loadFailures()...)
+	var diagnostics []Diagnostic
+	positioned := false
+	for _, err := range c.pkg.Errors {
+		position := c.positionOf(err)
+		switch {
+		case position.IsValid():
+			positioned = true
+			diagnostics = append(diagnostics, Diagnostic{Severity: SeverityError, Kind: KindGo, Position: position, Message: c.relative(err.Msg)})
+		case c.isCompilerHeading(err):
+			// The heading repeats the compiler's output, which the type errors
+			// already carry, so it is a diagnostic only when nothing else is.
+			diagnostics = append(diagnostics, Diagnostic{Severity: SeverityError, Kind: KindGo, Message: c.relative(err.Msg)})
+		default:
+			return nil, failure
+		}
+	}
+	if positioned {
+		diagnostics = slices.DeleteFunc(diagnostics, func(d Diagnostic) bool { return !d.Position.IsValid() })
+	}
+	sortDiagnostics(diagnostics)
+	return &stop{diagnostics, failure}, nil
+}
+
+// isCompilerHeading reports whether err is the "# <package>" block holding the
+// compiler's own output.
+func (c *compiler) isCompilerHeading(err packages.Error) bool {
+	return err.Pos == "" && strings.HasPrefix(err.Msg, "# "+c.pkg.PkgPath+"\n")
+}
+
+var positionPattern = regexp.MustCompile(`^(.+?):(\d+)(?::(\d+))?$`)
+
+// positionOf reads the "file:line:column" position of a load error, relative
+// to the ruleset directory. It is invalid when the error has none.
+func (c *compiler) positionOf(err packages.Error) token.Position {
+	match := positionPattern.FindStringSubmatch(err.Pos)
+	if match == nil {
+		return token.Position{}
+	}
+	line, _ := strconv.Atoi(match[2])
+	column, _ := strconv.Atoi(match[3])
+	return token.Position{Filename: c.relative(match[1]), Line: line, Column: column}
+}
+
 // packageError names the ruleset package in a diagnostic. Positions are relative
 // to the package directory, and go generate ./... runs many packages in one
 // stream, so a position alone does not identify the file.
@@ -361,26 +531,33 @@ func (c *compiler) position(pos token.Pos) token.Position {
 	return position
 }
 
-func (c *compiler) errorf(pos token.Pos, message string, args ...any) {
-	c.errors = append(c.errors, Note{c.position(pos), fmt.Sprintf(message, args...)})
+// errorf records an error. The caller sets the kind and whichever of Rule, Fact,
+// Related, and Suggestion apply in d. A zero pos leaves the position invalid.
+func (c *compiler) errorf(d Diagnostic, pos token.Pos, format string, args ...any) {
+	d.Severity, d.Position, d.Message = SeverityError, c.position(pos), fmt.Sprintf(format, args...)
+	c.errors = append(c.errors, d)
 }
 
-// failure joins the collected errors in source order, or returns nil if there
-// are none. Errors without a position come first.
-func (c *compiler) failure() error {
-	sortNotes(c.errors)
+// errorStop ends analysis if errors were recorded. It returns every one of them in
+// source order, with errors without a position first, and the error Generate
+// returns, which is limited like the Go compiler's output.
+func (c *compiler) errorStop() *stop {
+	if len(c.errors) == 0 {
+		return nil
+	}
+	sortDiagnostics(c.errors)
 	var failures []error
-	for _, note := range c.errors[:min(len(c.errors), maxErrors)] {
-		failures = append(failures, c.packageError(note.String()))
+	for _, d := range c.errors[:min(len(c.errors), maxErrors)] {
+		failures = append(failures, c.packageError(d.note().String()))
 	}
 	if len(c.errors) > maxErrors {
 		failures = append(failures, c.packageError("too many errors"))
 	}
-	return errors.Join(failures...)
+	return &stop{c.errors, errors.Join(failures...)}
 }
 
-func sortNotes(notes []Note) {
-	slices.SortStableFunc(notes, func(a, b Note) int {
+func sortDiagnostics(diagnostics []Diagnostic) {
+	slices.SortStableFunc(diagnostics, func(a, b Diagnostic) int {
 		return cmp.Or(
 			cmp.Compare(a.Position.Filename, b.Position.Filename),
 			cmp.Compare(a.Position.Line, b.Position.Line),
@@ -394,11 +571,11 @@ func sortNotes(notes []Note) {
 func (c *compiler) contract(name string) *types.TypeName {
 	obj, ok := c.pkg.Types.Scope().Lookup(name).(*types.TypeName)
 	if !ok {
-		c.errorf(token.NoPos, "%s must name a struct type in the ruleset package", name)
+		c.errorf(Diagnostic{Kind: KindContract}, token.NoPos, "%s must name a struct type in the ruleset package", name)
 		return nil
 	}
 	if generic, ok := obj.Type().(interface{ TypeParams() *types.TypeParamList }); ok && generic.TypeParams().Len() != 0 {
-		c.errorf(obj.Pos(), "%s must not be generic", name)
+		c.errorf(Diagnostic{Kind: KindContract}, obj.Pos(), "%s must not be generic", name)
 		return nil
 	}
 	return obj
@@ -414,7 +591,7 @@ func (c *compiler) fields(name string) ([]field, bool) {
 	}
 	structure, ok := obj.Type().Underlying().(*types.Struct)
 	if !ok {
-		c.errorf(obj.Pos(), "%s must be a struct", name)
+		c.errorf(Diagnostic{Kind: KindContract}, obj.Pos(), "%s must be a struct", name)
 		return nil, false
 	}
 	var fields []field
@@ -423,7 +600,7 @@ func (c *compiler) fields(name string) ([]field, bool) {
 		f := structure.Field(i)
 		rejected := false
 		if !f.Exported() || f.Embedded() {
-			c.errorf(f.Pos(), "%s fields must be exported and must not be embedded", name)
+			c.errorf(Diagnostic{Kind: KindContract}, f.Pos(), "%s fields must be exported and must not be embedded", name)
 			rejected = true
 		}
 		factName := f.Name()
@@ -431,15 +608,15 @@ func (c *compiler) fields(name string) ([]field, bool) {
 			factName = tag
 		}
 		if !token.IsIdentifier(factName) || factName == "_" {
-			c.errorf(f.Pos(), "invalid fact name %q", factName)
+			c.errorf(Diagnostic{Kind: KindContract, Fact: factName}, f.Pos(), "invalid fact name %q", factName)
 			factName, rejected = "", true
 		} else if first, exists := seen[factName]; exists {
-			c.errorf(f.Pos(), "%s maps multiple fields to fact %q", name, factName)
+			c.errorf(Diagnostic{Kind: KindContract, Fact: factName}, f.Pos(), "%s maps multiple fields to fact %q", name, factName)
 			fields[first].fact.uncertain = true
 			continue
 		}
 		if factName != "" && (isError(f.Type()) || isContext(f.Type())) {
-			c.errorf(f.Pos(), "fact %q cannot use the reserved error or context.Context types", factName)
+			c.errorf(Diagnostic{Kind: KindContract, Fact: factName}, f.Pos(), "fact %q cannot use the reserved error or context.Context types", factName)
 			rejected = true
 		}
 		if factName != "" {
@@ -475,19 +652,19 @@ func (c *compiler) addRule(fn *types.Func) {
 	errorsBefore := len(c.errors)
 	rejected := signature.Variadic() || signature.TypeParams().Len() != 0
 	if rejected {
-		c.errorf(fn.Pos(), "rule %s must not be variadic or generic", fn.Name())
+		c.errorf(Diagnostic{Kind: KindSignature, Rule: r.name}, fn.Pos(), "rule %s must not be variadic or generic", fn.Name())
 	}
 	for i := 0; i < signature.Params().Len() && !rejected; i++ {
 		param := signature.Params().At(i)
 		if isContext(param.Type()) {
 			if i != 0 {
-				c.errorf(param.Pos(), "rule %s must place context.Context first", r.name)
+				c.errorf(Diagnostic{Kind: KindSignature, Rule: r.name}, param.Pos(), "rule %s must place context.Context first", r.name)
 			}
 			r.withContext = true
 			continue
 		}
 		if param.Name() == "" || param.Name() == "_" || isError(param.Type()) {
-			c.errorf(param.Pos(), "rule %s requires named, non-error input facts", r.name)
+			c.errorf(Diagnostic{Kind: KindSignature, Rule: r.name}, param.Pos(), "rule %s requires named, non-error input facts", r.name)
 			continue
 		}
 		r.inputs = append(r.inputs, fact{name: param.Name(), typ: param.Type(), pos: param.Pos()})
@@ -496,20 +673,24 @@ func (c *compiler) addRule(fn *types.Func) {
 		result := signature.Results().At(i)
 		if isError(result.Type()) {
 			if i != signature.Results().Len()-1 {
-				c.errorf(result.Pos(), "rule %s must place error last", r.name)
+				c.errorf(Diagnostic{Kind: KindSignature, Rule: r.name}, result.Pos(), "rule %s must place error last", r.name)
 			}
 			r.withError = true
 			continue
 		}
 		if result.Name() == "" || result.Name() == "_" || isContext(result.Type()) {
-			c.errorf(result.Pos(), "rule %s requires named output facts and reserves context.Context for its first input", r.name)
+			c.errorf(Diagnostic{Kind: KindSignature, Rule: r.name}, result.Pos(), "rule %s requires named output facts and reserves context.Context for its first input", r.name)
 			c.unnamed = append(c.unnamed, result.Type())
 			continue
 		}
 		f := fact{name: result.Name(), typ: result.Type(), pos: result.Pos(), producer: len(c.rules), uncertain: rejected}
 		r.outputs = append(r.outputs, f)
 		if previous, exists := c.facts[f.name]; exists {
-			c.errorf(f.pos, "fact %q has multiple producers; first declared at %s", f.name, c.position(previous.pos))
+			duplicate := Diagnostic{Kind: KindDuplicateProducer, Rule: r.name, Fact: f.name}
+			if previous.producer >= 0 {
+				duplicate.Related = []string{c.rules[previous.producer].name}
+			}
+			c.errorf(duplicate, f.pos, "fact %q has multiple producers; first declared at %s", f.name, c.position(previous.pos))
 			previous.uncertain = true
 			c.facts[f.name] = previous
 			continue
@@ -517,20 +698,26 @@ func (c *compiler) addRule(fn *types.Func) {
 		c.facts[f.name] = f
 	}
 	if len(r.outputs) == 0 && len(c.errors) == errorsBefore {
-		c.errorf(fn.Pos(), "rule %s must produce at least one named fact", r.name)
+		c.errorf(Diagnostic{Kind: KindSignature, Rule: r.name}, fn.Pos(), "rule %s must produce at least one named fact", r.name)
 	}
 	c.rules = append(c.rules, r)
 }
 
 // resolve finds the declaration of a wanted fact and reports any mismatch. The
-// result is false when the fact cannot be trusted as a graph edge. The signature
-// holds the facts of the rule that wants this one, if any.
-func (c *compiler) resolve(want fact, signature []fact) (fact, bool) {
+// result is false when the fact cannot be trusted as a graph edge. The reader is
+// the rule that wants this fact, empty for an output field, and the signature
+// holds that rule's facts.
+func (c *compiler) resolve(want fact, reader string, signature []fact) (fact, bool) {
 	f, exists := c.facts[want.name]
 	if !exists {
 		matchesUnnamed := slices.ContainsFunc(c.unnamed, func(t types.Type) bool { return types.Identical(t, want.typ) })
 		if !c.inputsUnknown && !matchesUnnamed {
-			c.errorf(want.pos, "no input or rule produces fact %q%s", want.name, c.suggestion(want.name, signature))
+			suggestion := c.suggestion(want.name, signature)
+			message := fmt.Sprintf("no input or rule produces fact %q", want.name)
+			if suggestion != "" {
+				message += fmt.Sprintf("; did you mean %q?", suggestion)
+			}
+			c.errorf(Diagnostic{Kind: KindMissingProducer, Rule: reader, Fact: want.name, Suggestion: suggestion}, want.pos, "%s", message)
 		}
 		return fact{}, false
 	}
@@ -538,14 +725,18 @@ func (c *compiler) resolve(want fact, signature []fact) (fact, bool) {
 		return fact{}, false
 	}
 	if !types.Identical(f.typ, want.typ) {
-		c.errorf(want.pos, "fact %q has type %s, expected %s; declared at %s", want.name, f.typ, want.typ, c.position(f.pos))
+		mismatch := Diagnostic{Kind: KindTypeMismatch, Rule: reader, Fact: want.name}
+		if f.producer >= 0 {
+			mismatch.Related = []string{c.rules[f.producer].name}
+		}
+		c.errorf(mismatch, want.pos, "fact %q has type %s, expected %s; declared at %s", want.name, f.typ, want.typ, c.position(f.pos))
 		return fact{}, false
 	}
 	return f, true
 }
 
-// suggestion returns a "did you mean" clause naming the known fact closest to
-// name, or nothing if no fact is close enough. Comparison ignores case, so a
+// suggestion returns the known fact closest to name, or "" if no fact is close
+// enough. Comparison ignores case, so a
 // case-only difference always wins. Ties go to the alphabetically first name.
 // Names already in the signature are skipped, because Go rejects a redeclaration.
 func (c *compiler) suggestion(name string, signature []fact) string {
@@ -561,10 +752,7 @@ func (c *compiler) suggestion(name string, signature []fact) string {
 			best, bestDistance = candidate, distance
 		}
 	}
-	if best == "" {
-		return ""
-	}
-	return fmt.Sprintf("; did you mean %q?", best)
+	return best
 }
 
 // editDistance counts the insertions, deletions, substitutions, and adjacent
@@ -599,7 +787,7 @@ func (c *compiler) validate() {
 	for id := range c.rules {
 		r := &c.rules[id]
 		for _, input := range r.inputs {
-			f, ok := c.resolve(input, slices.Concat(r.inputs, r.outputs))
+			f, ok := c.resolve(input, r.name, slices.Concat(r.inputs, r.outputs))
 			if ok && f.producer >= 0 && !slices.Contains(r.dependencies, f.producer) {
 				r.dependencies = append(r.dependencies, f.producer)
 			}
@@ -608,7 +796,7 @@ func (c *compiler) validate() {
 	}
 	for _, output := range c.outputs {
 		if !output.fact.uncertain {
-			c.resolve(output.fact, nil)
+			c.resolve(output.fact, "", nil)
 		}
 	}
 	state := make([]uint8, len(c.rules))
@@ -620,10 +808,11 @@ func (c *compiler) validate() {
 		}
 		if state[id] == 1 {
 			var names []string
-			for _, member := range append(slices.Clone(stack[slices.Index(stack, id):]), id) {
+			for _, member := range stack[slices.Index(stack, id):] {
 				names = append(names, c.rules[member].name)
 			}
-			c.errorf(c.rules[id].pos, "rule dependency cycle: %s", strings.Join(names, " -> "))
+			c.errorf(Diagnostic{Kind: KindCycle, Rule: c.rules[id].name, Related: names}, c.rules[id].pos,
+				"rule dependency cycle: %s -> %s", strings.Join(names, " -> "), names[0])
 			return
 		}
 		state[id] = 1
@@ -667,13 +856,17 @@ func (c *compiler) retainedRules() []int {
 }
 
 // unusedDeclarations warns about rules that pruning removed and inputs that
-// neither a retained rule nor an output reads.
-func (c *compiler) unusedDeclarations(ids []int) []Note {
-	var notes []Note
+// neither a retained rule nor an output reads. It also returns the pruned rules'
+// names in source order.
+func (c *compiler) unusedDeclarations(ids []int) (warnings []Diagnostic, pruned []string) {
 	read := make(map[string]bool)
 	for id, r := range c.rules {
 		if !slices.Contains(ids, id) {
-			notes = append(notes, Note{c.position(r.pos), fmt.Sprintf("rule %s is not needed by any output and was left out", r.name)})
+			pruned = append(pruned, r.name)
+			warnings = append(warnings, Diagnostic{
+				Severity: SeverityWarning, Kind: KindUnusedRule, Position: c.position(r.pos), Rule: r.name,
+				Message: fmt.Sprintf("rule %s is not needed by any output and was left out", r.name),
+			})
 			continue
 		}
 		for _, input := range r.inputs {
@@ -685,11 +878,14 @@ func (c *compiler) unusedDeclarations(ids []int) []Note {
 	}
 	for _, input := range c.inputs {
 		if !read[input.fact.name] {
-			notes = append(notes, Note{c.position(input.fact.pos), fmt.Sprintf("input fact %q is not used by any output or retained rule", input.fact.name)})
+			warnings = append(warnings, Diagnostic{
+				Severity: SeverityWarning, Kind: KindUnusedInput, Position: c.position(input.fact.pos), Fact: input.fact.name,
+				Message: fmt.Sprintf("input fact %q is not used by any output or retained rule", input.fact.name),
+			})
 		}
 	}
-	sortNotes(notes)
-	return notes
+	sortDiagnostics(warnings)
+	return warnings, pruned
 }
 
 // nameAllocator returns a function that derives names unused in scope and by
