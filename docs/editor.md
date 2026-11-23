@@ -66,7 +66,11 @@ The page has a header, a summary line, three columns, and a status line.
 - The middle column is the graph, with New rule, zoom, Fit map, Actual size, and
   List buttons. A wire is labelled with the fact that flows along it. Rows marked
   with a filled square are read from another rule. Rows marked with a hollow
-  square are inputs.
+  square are inputs. Scrolling pans the graph, and pinching or Ctrl with the
+  wheel zooms at the pointer. When you zoom out far enough, each rule shrinks to
+  its name so the whole map stays readable. Selecting a rule anywhere on the
+  page brings it into view, and dragging a fact to the edge of the graph pans it
+  toward the rules beyond that edge.
 - The right column is the rule sheet and the code pane for the selected rule.
   Click a rule to select it. The sheet holds the name, the requirement, the
   reads, and the results, and the code pane holds the declaration.
