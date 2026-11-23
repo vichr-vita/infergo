@@ -3,7 +3,7 @@ import test from 'node:test';
 import { deriveGraph, wireKey } from '../derive';
 import { fixtures } from '../fixtures.check';
 import type { Check, Model } from '../protocol';
-import { anchorShift, box, buildLayoutInput, buildNode, gatherFindings, noFindings, place, shifted, type Measure } from './layout';
+import { anchorShift, box, buildLayoutInput, buildNode, compactLines, gatherFindings, noFindings, place, shifted, type Measure } from './layout';
 
 // Seven units per character stands in for canvas measurement.
 const measure: Measure = text => Array.from(text).length * 7;
@@ -110,4 +110,19 @@ test('the anchor rule keeps its corner after a new layout', () => {
   // With no anchor in both, the origin stays where the earlier shifts left it.
   const again = anchorShift(moved, next, ['Missing']);
   assert.deepEqual(again, { dx: moved.bounds.x - next.bounds.x, dy: moved.bounds.y - next.bounds.y });
+});
+
+test('a compact name breaks between its words and ends in an ellipsis when it runs out of room', () => {
+  const six = (text: string) => Array.from(text).length * 6;
+  // Ten characters a line.
+  assert.deepEqual(compactLines('CappedBonus()', 60, 2, six), ['Capped', 'Bonus()']);
+  assert.deepEqual(compactLines('RoleRate()', 60, 1, six), ['RoleRate()']);
+  // One line: as much of the name as fits, then the ellipsis.
+  assert.deepEqual(compactLines('GoodPerformance()', 60, 1, six), ['GoodPerfo…']);
+  // A word longer than a line is cut on its own line.
+  assert.deepEqual(compactLines('ExceptionalPerformance()', 60, 2, six), ['Exception…', 'Performan…']);
+  // More words than lines: the last line takes the rest.
+  assert.deepEqual(compactLines('IsBonusEligible()', 42, 2, six), ['IsBonus', 'Eligib…']);
+  // Never fewer than one line, and never more characters than fit.
+  for (const line of compactLines('PaymentReference()', 30, 0, six)) assert.ok(six(line) <= 30);
 });

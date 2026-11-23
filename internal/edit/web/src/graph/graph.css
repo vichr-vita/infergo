@@ -106,6 +106,35 @@
 #graph-root .graph-rename { padding: 8px; }
 #graph-root .graph-rename p { margin: 6px 0 0; }
 
+/* The New rule placeholder: where the rule will go, drawn as pending. */
+#graph-root .graph-ghost { pointer-events: none; }
+#graph-root .graph-node.placeholder .box { stroke: var(--teal); stroke-width: 1.5; stroke-dasharray: 5 4; }
+#graph-root .graph-node.placeholder text { fill: var(--teal); }
+#graph-root .graph-node.placeholder .pin.filled { fill: var(--teal); }
+#graph-root .graph-node.placeholder .pin.hollow { stroke: var(--teal); }
+
+/* Semantic zoom. Below the compact threshold a node shows its name, and its
+   problem count when there is room, at screen size (index.ts scales
+   .compact-name by 1/k). The aimed node's state sits above it (.aim-label).
+   Strokes keep their screen width, fix links hide, and only the labels marked
+   .keep stay, minus those that would cover another (.crowded) or are dimmed. */
+#graph-root .compact-name { display: none; }
+#graph-root .graph-viewport.compact .compact-name { display: inline; }
+#graph-root .graph-viewport.compact .graph-node > g:not(.compact-name) { display: none; }
+#graph-root .graph-viewport.compact .graph-scene { display: none; }
+#graph-root .graph-viewport.compact .graph-label:is(:not(.keep), .crowded, .dim) { display: none; }
+#graph-root .graph-viewport.compact :is(.box, .ring, .line, .hit, .pending-wire, .closing-wire) { vector-effect: non-scaling-stroke; }
+#graph-root .graph-node .compact-text, #graph-root .aim-text { font: 600 10px var(--mono); fill: var(--fg); }
+#graph-root .aim-box { fill: var(--bg); }
+#graph-root .aim-text.pending { fill: var(--teal); }
+#graph-root .aim-text.refused { fill: var(--amber); }
+#graph-root .graph-node .compact-text.pending { fill: var(--teal); }
+#graph-root .graph-node .compact-text.error { fill: var(--red); }
+#graph-root .graph-node .compact-text.refused, #graph-root .graph-node .compact-text.warning { fill: var(--amber); }
+#graph-root .compact-name .mark { fill: none; stroke-width: 3; }
+#graph-root .compact-name .mark.error { stroke: var(--red); }
+#graph-root .compact-name .mark.warning { stroke: var(--amber); stroke-dasharray: 4 3; }
+
 @media (prefers-reduced-motion: reduce) {
   #graph-root .graph-node, #graph-root .graph-fixes { transition: none; }
 }

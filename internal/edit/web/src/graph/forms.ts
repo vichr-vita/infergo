@@ -8,6 +8,11 @@ import type { Fact, Op } from '../protocol';
 import type { Store } from '../store';
 
 type Point = { x: number; y: number };
+/** Where a form goes, given its size once it is laid out. */
+type Placer = (size: { width: number; height: number }) => Point;
+
+/** What the New rule form holds so far, for the placeholder node the canvas draws. */
+export type Draft = { name: string; result: string; type: string };
 
 const goKeywords = new Set(['break', 'case', 'chan', 'const', 'continue', 'default', 'defer', 'else', 'fallthrough', 'for', 'func', 'go', 'goto', 'if', 'import', 'interface', 'map', 'package', 'range', 'return', 'select', 'struct', 'switch', 'type', 'var']);
 
@@ -52,7 +57,7 @@ export class Forms {
     if (hadFocus && returnFocus) this.#returnFocus();
   }
 
-  #mount(form: HTMLElement, at: Point, focus: HTMLElement, onClose?: () => void) {
+  #mount(form: HTMLElement, at: Point | Placer, focus: HTMLElement, onClose?: () => void) {
     this.close(false);
     this.#open = { element: form, onClose };
     form.addEventListener('keydown', event => {
@@ -64,8 +69,9 @@ export class Forms {
     this.layer.append(form);
     // Keep the whole form inside the canvas.
     const width = this.layer.clientWidth, height = this.layer.clientHeight;
-    const x = Math.max(8, Math.min(at.x, width - form.offsetWidth - 8));
-    const y = Math.max(8, Math.min(at.y, height - form.offsetHeight - 8));
+    const point = typeof at === 'function' ? at({ width: form.offsetWidth, height: form.offsetHeight }) : at;
+    const x = Math.max(8, Math.min(point.x, width - form.offsetWidth - 8));
+    const y = Math.max(8, Math.min(point.y, height - form.offsetHeight - 8));
     form.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
     focus.focus({ preventScroll: true });
     if (focus instanceof HTMLInputElement) focus.select();
@@ -80,11 +86,13 @@ export class Forms {
   }
 
   /**
-   * The New rule form at `at` (canvas pixels). A fact dropped on the canvas
-   * becomes the rule's read. The code pane previews the stub while the form
-   * is valid. `created` runs with the new rule's name after the server accepts it.
+   * The New rule form at `at` (canvas pixels, or a function of the form's
+   * size). A fact dropped on the canvas becomes the rule's read. The code pane
+   * previews the stub while the form is valid. `created` runs with the new
+   * rule's name after the server accepts it. `draft` hears every change to the
+   * fields and `closed` the form going away, for the placeholder node.
    */
-  newRule(at: Point, read: Fact | undefined, created: (name: string) => void) {
+  newRule(at: Point | Placer, read: Fact | undefined, created: (name: string) => void, draft?: { changed(draft: Draft): void; closed(): void }) {
     const store = this.#store;
     const types = [...new Set([...store.state.graph.facts.values()].map(fact => fact.type))].sort();
     const id = `graph-new-${Date.now().toString(36)}`;
@@ -121,6 +129,7 @@ export class Forms {
     };
     const op = (): Op => addRuleOp(store.state.graph, name.value.trim(), [{ name: result.value.trim(), type: type.value.trim() }], read);
     const refresh = (showError: boolean) => {
+      draft?.changed({ name: name.value.trim(), result: result.value.trim(), type: type.value.trim() });
       const why = problem();
       error.textContent = showError && name.value ? why ?? '' : '';
       name.setAttribute('aria-invalid', String(!!why && showError && !!name.value));
@@ -150,7 +159,8 @@ export class Forms {
         error.textContent = outcome.kind === 'refused' ? outcome.refusal.message : outcome.error;
       }
     });
-    this.#mount(form, at, name);
+    this.#mount(form, at, name, draft?.closed);
+    draft?.changed({ name: '', result: '', type: type.value.trim() });
   }
 
   /** An input over a rule's name or a fact row. Enter applies rename_rule or rename_fact. */
