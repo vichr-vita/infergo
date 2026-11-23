@@ -1,9 +1,111 @@
-/* Graph canvas placeholder. */
-#graph-root { display: flex; flex-direction: column; }
-.graph-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.graph-title { font-size: 14px; font-weight: 500; margin-right: auto; overflow-wrap: anywhere; }
-.graph-stub { flex: 1; min-height: 0; overflow-y: auto; border: 1px dashed var(--control); padding: 12px; }
-.graph-stub p { margin: 0 0 12px; font-size: 13px; }
-.graph-stub-rules { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
-.graph-stub-rules button { font: 600 13px var(--mono); }
-.graph-stub-rules button[aria-current="true"] { border-color: var(--teal); color: var(--teal); }
+/* Graph canvas. Every selector is scoped to #graph-root. Font sizes here are
+   the ones layout.ts measures with; change both together. */
+#graph-root { display: flex; flex-direction: column; min-height: 0; }
+#graph-root .graph-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+#graph-root .graph-title { font-size: 14px; font-weight: 500; margin-right: auto; overflow-wrap: anywhere; }
+#graph-root .graph-tools { display: flex; gap: 8px; flex-wrap: wrap; }
+#graph-root .graph-tools button { font-size: 13px; }
+#graph-root .graph-zoom { min-width: var(--control-height); font-size: 16px; }
+#graph-root .graph-hint { display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 12px; margin: 8px 0 10px; }
+
+/* The canvas clips what is panned out of view; it is a viewport, not a page. */
+#graph-root .graph-viewport { position: relative; flex: 1; min-height: 0; overflow: hidden; border: 1px dashed var(--control); background: var(--bg); touch-action: none; cursor: default; }
+#graph-root .graph-viewport.panning { cursor: grabbing; }
+#graph-root .graph-viewport[data-drop-over] { border-color: var(--teal); }
+#graph-root .graph-viewport:focus-visible { outline-offset: -2px; }
+#graph-root .graph-svg { outline: none; position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; display: block; user-select: none; -webkit-user-select: none; }
+#graph-root .graph-scene { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; pointer-events: none; }
+#graph-root .graph-ui { position: absolute; inset: 0; pointer-events: none; }
+#graph-root .graph-message { position: absolute; left: 16px; top: 16px; right: 16px; margin: 0; font-size: 13px; }
+
+/* Nodes. A node moves once, over 150 ms, when the layout changes. */
+#graph-root .graph-node { transition: transform 150ms ease-out; cursor: pointer; outline: none; }
+#graph-root .graph-node .box { fill: var(--bg); stroke: var(--edge); stroke-width: 1.4; }
+#graph-root .graph-node .ring { fill: none; stroke: none; }
+#graph-root .graph-node:focus-visible .ring { stroke: var(--fg); stroke-width: 2; }
+#graph-root .graph-node text { fill: var(--fg); font: 13px var(--sans); }
+#graph-root .graph-node .name { font: 600 14px var(--mono); }
+#graph-root .graph-node .prose { font: 13px var(--sans); }
+#graph-root .graph-node .port { font: 12px var(--mono); }
+#graph-root .graph-node .ptype { font: 11px var(--mono); fill: var(--muted); text-anchor: end; }
+#graph-root .graph-node .value { font: 16px var(--sans); }
+#graph-root .graph-node .value.bad { fill: var(--red); }
+#graph-root .graph-node .note, #graph-root .graph-node .problems { font: 12px var(--sans); }
+#graph-root .graph-node .note.error, #graph-root .graph-node .problems.error { fill: var(--red); }
+#graph-root .graph-node .note.warning, #graph-root .graph-node .problems.warning, #graph-root .graph-node .note.refused { fill: var(--amber); }
+#graph-root .graph-node .divider { stroke: var(--rule-soft); }
+#graph-root .graph-node .pin.filled { fill: var(--fg); }
+#graph-root .graph-node .pin.hollow { fill: var(--bg); stroke: var(--fg); stroke-width: 1; }
+#graph-root .graph-node .pin-plus { font: 600 13px var(--mono); fill: var(--teal); }
+#graph-root .graph-node .row-hit { fill: transparent; }
+#graph-root .graph-fact { cursor: grab; outline: none; touch-action: none; }
+#graph-root .graph-fact.pending { cursor: default; }
+#graph-root .graph-fact:focus-visible .row-hit { stroke: var(--fg); stroke-width: 1; }
+#graph-root .graph-fact.lit text, #graph-root .graph-fact.pending text { fill: var(--teal); }
+#graph-root .graph-fact.lit .pin.filled { fill: var(--teal); }
+#graph-root .graph-fact.lit .pin.hollow { stroke: var(--teal); }
+#graph-root .graph-fact.bad .port, #graph-root .graph-fact.bad .ptype { fill: var(--red); }
+#graph-root .graph-fact.bad .pin.hollow, #graph-root .graph-fact.bad .pin.filled { fill: var(--bg); stroke: var(--red); }
+#graph-root .graph-fact .stub { fill: none; stroke: var(--red); stroke-width: 2; stroke-dasharray: 5 4; }
+#graph-root .graph-fact .stub-mark { font: 14px var(--sans); fill: var(--red); }
+#graph-root .graph-fact.bad .value { fill: var(--fg); }
+
+#graph-root .graph-node.selected .box { stroke: var(--teal); stroke-width: 2.5; }
+#graph-root .graph-node.selected .value:not(.bad) { fill: var(--teal); }
+#graph-root .graph-node.error .box { stroke: var(--red); stroke-width: 2; }
+#graph-root .graph-node.valid .box { stroke: var(--teal); stroke-dasharray: 5 4; }
+#graph-root .graph-node.target .box { stroke: var(--teal); stroke-width: 2.5; stroke-dasharray: none; }
+#graph-root .graph-node.refused .box, #graph-root .graph-node.on-cycle .box { stroke: var(--amber); stroke-width: 2.5; }
+#graph-root .graph-node.on-cycle .box { stroke-width: 1.6; }
+#graph-root .graph-node.pruned { opacity: .55; }
+#graph-root .graph-node.dim, #graph-root .graph-wire.dim, #graph-root .graph-label.dim, #graph-root .graph-fixes.dim { opacity: .3; }
+
+/* Wires: dashed, labelled, with an arrowhead. The wide transparent path takes the clicks. */
+#graph-root .graph-wire .line { fill: none; stroke: var(--edge); stroke-width: 1.25; stroke-dasharray: 5 4; }
+#graph-root .graph-wire .hit { fill: none; stroke: transparent; stroke-width: 14; cursor: pointer; }
+#graph-root .graph-wire.near .line, #graph-root .graph-wire.lit .line { stroke: var(--teal); }
+#graph-root .graph-wire.selected .line { stroke: var(--teal); stroke-width: 3; }
+#graph-root .graph-wire.error .line { stroke: var(--red); stroke-width: 2; }
+#graph-root .graph-wire.cycle .line { stroke: var(--amber); stroke-width: 2.5; }
+#graph-root .graph-label { cursor: grab; outline: none; touch-action: none; }
+#graph-root .graph-label .label-box { fill: var(--bg); stroke: none; }
+#graph-root .graph-label .label-text { fill: var(--muted); font: 12px var(--mono); text-anchor: middle; }
+#graph-root .graph-label.near .label-text, #graph-root .graph-label.lit .label-text, #graph-root .graph-label.selected .label-text { fill: var(--teal); }
+#graph-root .graph-label.chosen .label-box { stroke: var(--teal); stroke-width: 1.5; }
+#graph-root .graph-label:focus-visible .label-box { stroke: var(--fg); stroke-width: 2; }
+#graph-root .graph-label.error .label-text { fill: var(--red); }
+#graph-root .graph-label.cycle .label-text { fill: var(--amber); }
+
+/* While aiming: the pending wire into the target, or the loop a drop would close. */
+#graph-root .graph-pending { pointer-events: none; }
+#graph-root .pending-wire { fill: none; stroke: var(--teal); stroke-width: 2; stroke-dasharray: 5 4; }
+#graph-root .closing-wire { fill: none; stroke: var(--amber); stroke-width: 2; stroke-dasharray: 5 4; }
+#graph-root .pending-label-box, #graph-root .closing-label-box { fill: var(--bg); }
+#graph-root .pending-label { fill: var(--teal); font: 12px var(--mono); text-anchor: middle; }
+#graph-root .closing-label { fill: var(--amber); font: 12px var(--sans); text-anchor: middle; }
+
+/* Fix links, in graph units: the scene layer scales with the map. */
+#graph-root .graph-fixes { position: absolute; left: 0; top: 0; transition: transform 150ms ease-out; }
+#graph-root .graph-fix { position: absolute; pointer-events: auto; min-height: 0; max-width: none; height: 20px; line-height: 20px; font: 12px var(--sans); white-space: nowrap; text-underline-offset: 3px; }
+#graph-root .graph-fix:focus-visible { outline-offset: 1px; }
+
+/* Inline forms: square, 1 px, black, at 1:1 whatever the zoom. */
+#graph-root .graph-form { position: absolute; left: 0; top: 0; pointer-events: auto; width: 300px; max-width: calc(100% - 16px); padding: 14px; background: var(--bg); border: 1px solid var(--teal); font-size: 13px; }
+#graph-root .graph-form label { margin: 10px 0 6px; }
+#graph-root .graph-form label:first-child { margin-top: 0; }
+#graph-root .graph-form input { font: 13px var(--mono); }
+#graph-root .graph-form p { margin: 0 0 8px; }
+#graph-root .graph-form .graph-form-read { margin: 8px 0 0; }
+#graph-root .graph-form-pair { display: grid; grid-template-columns: minmax(0, 1fr) 96px; gap: 8px; }
+#graph-root .graph-form-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+#graph-root .graph-form-primary { border-color: var(--teal); color: var(--teal); }
+#graph-root .graph-form-danger { border-color: var(--red); color: var(--red); }
+#graph-root .graph-form-error { margin: 8px 0 0; }
+#graph-root .graph-form-error:empty { display: none; }
+#graph-root .graph-form-keys { margin: 8px 0 0; font-size: 12px; }
+#graph-root .graph-rename { padding: 8px; }
+#graph-root .graph-rename p { margin: 6px 0 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  #graph-root .graph-node, #graph-root .graph-fixes { transition: none; }
+}
