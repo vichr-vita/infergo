@@ -308,13 +308,7 @@ func TestApply(t *testing.T) {
 // ruleHash returns the source hash of a rule as Parse reports it.
 func ruleHash(t *testing.T, files Files, id string) string {
 	t.Helper()
-	for _, r := range Parse(files, rulesConfig).Rules {
-		if r.ID == id {
-			return r.SourceHash
-		}
-	}
-	t.Fatalf("no rule %s", id)
-	return ""
+	return ruleNamed(t, files, id).SourceHash
 }
 
 // checkRewrite asserts the properties every rewrite of a formatted file has:
@@ -605,4 +599,32 @@ func TestApplyBonus(t *testing.T) {
 	if len(before) != len(after) || changed != 1 {
 		t.Fatalf("changed %d lines, want 1", changed)
 	}
+}
+
+func TestUnsupportedRuleKeepsNonStructuralOperations(t *testing.T) {
+	files := baseFiles()
+	if r := ruleNamed(t, files, "Unnamed"); r.Unsupported == "" {
+		t.Fatal("Unnamed should be unsupported")
+	}
+	for _, op := range []protocol.Op{
+		{Op: "set_requirement", Rule: "Unnamed", Text: "Unnamed is described."},
+		{Op: "delete_rule", Rule: "Unnamed"},
+		{Op: "replace_source", Rule: "Unnamed", Text: "func Unnamed(a int) int { return a + 1 }", Base: ruleNamed(t, files, "Unnamed").SourceHash},
+	} {
+		if _, err := Apply(files, rulesConfig, op); err != nil {
+			t.Errorf("%s on an unsupported rule: %v", op.Op, err)
+		}
+	}
+}
+
+// ruleNamed returns a rule of the parsed files.
+func ruleNamed(t *testing.T, files Files, id string) protocol.Rule {
+	t.Helper()
+	for _, r := range Parse(files, rulesConfig).Rules {
+		if r.ID == id {
+			return r
+		}
+	}
+	t.Fatalf("no rule %s", id)
+	return protocol.Rule{}
 }

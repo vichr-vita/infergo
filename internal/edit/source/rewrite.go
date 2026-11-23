@@ -108,6 +108,7 @@ type edit struct {
 	raw bool
 }
 
+// newEdit starts an operation on the parsed ruleset.
 func newEdit(rs *ruleset) *edit {
 	return &edit{rs: rs, files: make(map[string]*fileEdit)}
 }

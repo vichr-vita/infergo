@@ -77,6 +77,7 @@ func checkFact(name, typ string) error {
 	return nil
 }
 
+// addRead appends a parameter for the fact to the rule.
 func (e *edit) addRead(op protocol.Op) (string, error) {
 	r, err := e.rs.findRule(op.Rule)
 	if err != nil {
@@ -100,6 +101,8 @@ func (e *edit) addRead(op protocol.Op) (string, error) {
 	return fmt.Sprintf("Added read %s %s to %s", op.Fact, op.Type, r.model.ID), nil
 }
 
+// removeRead removes the fact's parameter and leaves the body alone. The
+// label counts the uses the body still has.
 func (e *edit) removeRead(op protocol.Op) (string, error) {
 	r, err := e.rs.findRule(op.Rule)
 	if err != nil {
@@ -155,6 +158,7 @@ func countUses(body *ast.BlockStmt, name string) int {
 	return count
 }
 
+// addProduce adds a named result before any error result.
 func (e *edit) addProduce(op protocol.Op) (string, error) {
 	r, err := e.rs.findRule(op.Rule)
 	if err != nil {
@@ -243,6 +247,7 @@ func freshName(base string, signature *ast.FuncType) string {
 	return name
 }
 
+// removeProduce removes a result, and the parentheses when no result is left.
 func (e *edit) removeProduce(op protocol.Op) (string, error) {
 	r, err := e.rs.findRule(op.Rule)
 	if err != nil {
@@ -270,6 +275,7 @@ func (e *edit) removeProduce(op protocol.Op) (string, error) {
 	return fmt.Sprintf("Removed result %s from %s", op.Fact, r.model.ID), nil
 }
 
+// setType replaces the type of one parameter or result.
 func (e *edit) setType(op protocol.Op) (string, error) {
 	r, err := e.rs.findRule(op.Rule)
 	if err != nil {
@@ -298,6 +304,7 @@ func (e *edit) setType(op protocol.Op) (string, error) {
 	return fmt.Sprintf("Changed the type of %s in %s to %s", op.Fact, r.model.ID, op.Type), nil
 }
 
+// setRequirement rewrites the rule's doc comment, keeping directives.
 func (e *edit) setRequirement(op protocol.Op) (string, error) {
 	r, err := e.rs.findRule(op.Rule)
 	if err != nil {
@@ -370,6 +377,7 @@ func docComment(text string, directives []string) string {
 	return strings.Join(lines, "\n")
 }
 
+// deleteRule removes the rule with its doc comment, and any import only it used.
 func (e *edit) deleteRule(op protocol.Op) (string, error) {
 	r, err := e.rs.findRule(op.Rule)
 	if err != nil {
@@ -383,6 +391,8 @@ func (e *edit) deleteRule(op protocol.Op) (string, error) {
 	return "Deleted rule " + r.model.ID, nil
 }
 
+// addRule inserts a stub rule after op.After, or at the end of the first rule
+// file, importing errors if needed.
 func (e *edit) addRule(op protocol.Op) (string, error) {
 	if !token.IsIdentifier(op.Name) || !token.IsExported(op.Name) {
 		return "", refuse(protocol.ReasonUnsupported, "%q is not an exported Go identifier, which a rule name must be.", op.Name)
@@ -567,6 +577,7 @@ func (e *edit) removeField(c *contract, fact string) error {
 	return nil
 }
 
+// addInput adds a tagged field for the fact to the input struct.
 func (e *edit) addInput(op protocol.Op) (string, error) {
 	c, err := e.rs.editableContract(e.rs.inputs)
 	if err != nil {
@@ -581,6 +592,7 @@ func (e *edit) addInput(op protocol.Op) (string, error) {
 	return fmt.Sprintf("Added input %s %s", op.Fact, op.Type), nil
 }
 
+// removeInput removes the fact's field from the input struct.
 func (e *edit) removeInput(op protocol.Op) (string, error) {
 	c, err := e.rs.editableContract(e.rs.inputs)
 	if err != nil {
@@ -592,6 +604,8 @@ func (e *edit) removeInput(op protocol.Op) (string, error) {
 	return "Removed input " + op.Fact, nil
 }
 
+// setRequested adds a field for the fact to the output struct, typed as its
+// producer declares it, or removes the field.
 func (e *edit) setRequested(op protocol.Op) (string, error) {
 	c, err := e.rs.editableContract(e.rs.outputs)
 	if err != nil {
@@ -631,6 +645,8 @@ func (rs *ruleset) factType(fact string) (string, bool) {
 	return "", false
 }
 
+// replaceSource swaps the rule's declaration for op.Text when op.Base matches
+// the current declaration. With op.Format it also fixes imports and formats.
 func (e *edit) replaceSource(op protocol.Op) (string, error) {
 	r, err := e.rs.findRule(op.Rule)
 	if err != nil {
