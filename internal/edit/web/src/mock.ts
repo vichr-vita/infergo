@@ -336,11 +336,11 @@ export function applyOp(current: Model, op: Op): Outcome {
       if (typeof decl === 'string') return refuse('syntax_error', decl);
       if (decl.name !== target.id && graph.rules.has(decl.name)) return refuse('exists', `A rule named ${decl.name} already exists`);
       const before = target.source;
-      const text = op.text.replace(/\s+$/, '');
+      const text = op.format ? formatDecl(op.text) : op.text.replace(/\s+$/, '');
       setSource(model, target, text);
       target.id = decl.name;
       changes.push({ file: target.file, rule: target.id, before, after: text });
-      return done(`Edited ${target.id}`);
+      return done(op.format ? `Edited and formatted the code of ${target.id}` : `Edited the code of ${target.id}`);
     }
   }
 }
@@ -485,6 +485,50 @@ export function renderDecl(decl: Decl): string {
     : decl.results.length === 1 && !decl.results[0]!.name ? ` ${decl.results[0]!.type}`
       : ` (${decl.results.map(renderField).join(', ')})`;
   return [...decl.doc, `func ${decl.name}(${decl.params.map(renderField).join(', ')})${results} ${decl.body}`].join('\n');
+}
+
+/**
+ * The mock's stand-in for gofmt, used by replace_source with `format`: the
+ * signature on one line with `name type` fields, body lines indented with
+ * tabs by brace depth, runs of blanks inside a line collapsed to one space
+ * outside strings and comments, no trailing blanks, and at most one empty
+ * line in a row. Real gofmt also aligns, spaces operators, and keeps grouped
+ * names; this does not.
+ */
+export function formatDecl(text: string): string {
+  const decl = parseDecl(text);
+  if (typeof decl === 'string') return text.replace(/\s+$/, '');
+  decl.doc = decl.doc.map(line => line.trimEnd());
+  const body: string[] = [];
+  let depth = 0;
+  for (const raw of decl.body.split('\n')) {
+    const line = collapseBlanks(raw.trim());
+    if (!line) { if (body.at(-1) !== '') body.push(''); continue; }
+    const code = line.replace(/"(\\.|[^"\\])*"|`[^`]*`|'(\\.|[^'\\])*'|\/\/.*$/g, '');
+    const leadingClose = /^[}\])]*/.exec(code)![0].length;
+    body.push('\t'.repeat(Math.max(0, depth - leadingClose)) + line);
+    depth += (code.match(/[{[(]/g) ?? []).length - (code.match(/[}\])]/g) ?? []).length;
+  }
+  decl.body = body.join('\n').replace(/^\t+/, '');
+  return renderDecl(decl);
+}
+
+// Collapses blanks between tokens, leaving strings, runes, and comments alone.
+function collapseBlanks(line: string): string {
+  let out = '';
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!;
+    if (c === '/' && line[i + 1] === '/') return out + line.slice(i);
+    if (c === '"' || c === '\'' || c === '`') {
+      const end = c === '`' ? line.indexOf('`', i + 1) : findQuoteEnd(line, i);
+      if (end < 0) return out + line.slice(i);
+      out += line.slice(i, end + 1);
+      i = end;
+    } else if (c === ' ' || c === '\t') {
+      if (!out.endsWith(' ')) out += ' ';
+    } else out += c;
+  }
+  return out;
 }
 
 function requirementOf(source: string): string {
@@ -661,6 +705,29 @@ function computeCheck(model: Model, previous: Check | undefined): Check {
       message: `rules depend on each other: ${[...members, rule.id].join(', ')}`,
       fixes: loop.map(wire => ({ label: `Remove ${wire.fact} from ${wire.to}`, op: { op: 'remove_read', rule: wire.to, fact: wire.fact } })),
     });
+  }
+  // Go type errors, a believable subset: a fact name used in a body that the
+  // rule neither declares nor binds locally, as a removed read leaves behind.
+  for (const rule of model.rules) {
+    const decl = parseDecl(rule.source);
+    if (typeof decl === 'string') continue;
+    const declared = new Set([...decl.params, ...decl.results].map(field => field.name).filter(Boolean));
+    for (const match of decl.body.matchAll(/(\w+)(?:\s*,\s*(\w+))?\s*:=|\bvar\s+(\w+)/g)) {
+      for (const name of match.slice(1)) if (name) declared.add(name);
+    }
+    const bodyAt = rule.source.lastIndexOf(decl.body);
+    const firstLine = rule.line - decl.doc.length;
+    const code = decl.body.replace(/"(\\.|[^"\\])*"|`[^`]*`|\/\/.*$/gm, text => ' '.repeat(text.length));
+    for (const fact of graph.facts.keys()) {
+      if (declared.has(fact)) continue;
+      const at = new RegExp(`(?<![\\w.])${fact}\\b`).exec(code)?.index;
+      if (at === undefined) continue;
+      const before = rule.source.slice(0, bodyAt + at).split('\n');
+      diagnostics.push({
+        file: rule.file, line: firstLine + before.length - 1, column: before.at(-1)!.length + 1,
+        severity: 'error', kind: 'go', rule: rule.id, message: `undefined: ${fact}`, fixes: [],
+      });
+    }
   }
   for (const rule of model.rules) {
     if (!rule.unsupported) continue;

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fixtures } from './fixtures.check';
-import { applyOp, mockApi, parseDecl, wrapComment } from './mock';
-import type { Model, Op, Rule } from './protocol';
+import { applyOp, formatDecl, mockApi, parseDecl, wrapComment } from './mock';
+import type { Check, Model, Op, Rule } from './protocol';
 
 function applied(model: Model, op: Op): Model {
   const outcome = applyOp(model, op);
@@ -104,4 +104,27 @@ test('the computed check is clean on the fixture and reports a hand-made cycle',
   await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(checks.at(-1)!.ok, false);
   assert.ok(checks.at(-1)!.kinds.includes('cycle'));
+});
+
+test('replace_source with format reindents and respaces like gofmt, roughly', () => {
+  const original = rule(fixtures.model, 'ReviewRequired');
+  const messy = original.source
+    .replace('cappedBonusCents uint64, approvalsSatisfied bool', 'cappedBonusCents   uint64,approvalsSatisfied bool')
+    .replace('\t\treason := "approval_pending"', '      reason  :=   "approval  pending"   ');
+  assert.equal(formatDecl(messy), original.source.replace('"approval_pending"', '"approval  pending"'));
+  assert.equal(formatDecl(original.source), original.source);
+  const formatted = applied(fixtures.model, { op: 'replace_source', rule: original.id, text: messy, base: original.sourceHash, format: true });
+  assert.equal(rule(formatted, original.id).source, formatDecl(messy));
+});
+
+test('the computed check reports a removed read still used in the body as a Go error on its line', async () => {
+  const api = mockApi({ latency: { request: 0, check: 0, values: 0 } });
+  const checks: Check[] = [];
+  api.subscribe({ model() {}, history() {}, values() {}, connection() {}, check: check => checks.push(check) });
+  await api.apply({ op: 'remove_read', rule: 'ReviewRequired', fact: 'approvalsSatisfied' });
+  await new Promise(resolve => setTimeout(resolve, 5));
+  const go = checks.at(-1)!.diagnostics.filter(diagnostic => diagnostic.kind === 'go');
+  const source = rule(api.current(), 'ReviewRequired');
+  assert.deepEqual(go.map(({ rule, line, message }) => ({ rule, line, message })), [{ rule: 'ReviewRequired', line: source.line + 1, message: 'undefined: approvalsSatisfied' }]);
+  assert.equal(source.source.split('\n')[2]!.slice(go[0]!.column! - 1).startsWith('approvalsSatisfied'), true);
 });
