@@ -2,3 +2,5 @@ node_modules/
 test-results/
 playwright-report/
 .view-test/
+internal/edit/web/dev/
+internal/edit/web/.test/

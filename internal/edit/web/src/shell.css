@@ -1,0 +1,175 @@
+/*
+  Editor base styles: tokens, shared classes, and the shell layout. build.mjs
+  puts this file first in editor.css, followed by each region's own
+  src/<region>/*.css in path order. Regions use the tokens and shared classes
+  below and never restyle another region's elements.
+
+  Tokens
+    --bg #000         page and every panel. Nothing is lighter than black.
+    --fg #fff         text and active borders.
+    --muted #ccc      type annotations beside identifiers. Not for prose.
+    --faint #999      disabled controls and code comments.
+    --rule #555       column and header borders.
+    --rule-soft #333  row separators.
+    --edge #888       node boxes, wires, plain bordered blocks.
+    --control #666    control borders.
+    --teal #74dfd0    selected or pending: "this is chosen" or "this would happen".
+    --amber #f0b36c   refused, changed, or warning.
+    --red #ff9999     error.
+    --teal-wash #0d2b27  background of inserted code only.
+    --mono / --sans   identifiers and code / prose.
+    --control-height 44px, --mini-height 26px.
+    --facts-width 204px, --rule-width 436px, --gutter 32px (16px when narrow).
+
+  Colour means state and nothing else. Never: card or pill chrome, rounded
+  corners, shadows, glows, blur, gradients, continuously repainting
+  animations, decorative icons, grey subtitle lines above sections.
+*/
+:root {
+  color-scheme: dark;
+  --bg: #000;
+  --fg: #fff;
+  --muted: #ccc;
+  --faint: #999;
+  --rule: #555;
+  --rule-soft: #333;
+  --edge: #888;
+  --control: #666;
+  --teal: #74dfd0;
+  --amber: #f0b36c;
+  --red: #ff9999;
+  --teal-wash: #0d2b27;
+  --mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Consolas, monospace;
+  --sans: Inter, ui-sans-serif, system-ui, sans-serif;
+  --control-height: 44px;
+  --mini-height: 26px;
+  --facts-width: 204px;
+  --rule-width: 436px;
+  --gutter: 32px;
+  font: 15px/1.5 var(--sans);
+  background: var(--bg);
+  color: var(--fg);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); }
+[hidden] { display: none !important; }
+h1 { font-size: 25px; letter-spacing: -.6px; font-weight: 600; margin: 0; line-height: var(--control-height); }
+h2 { font-size: 20px; margin: 0; overflow-wrap: anywhere; color: var(--teal); }
+p { margin: 6px 0 0; }
+code, pre, kbd, .mono { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+a { color: var(--teal); text-underline-offset: 4px; overflow-wrap: anywhere; }
+label { display: block; font-size: 13px; margin-bottom: 6px; }
+:focus-visible { outline: 2px solid var(--teal); outline-offset: 3px; }
+
+/* ---- Shared classes ---------------------------------------------------- */
+
+/* Controls. Every button and field is square, 1 px, 44 px tall. */
+input, select, button, textarea { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--control); border-radius: 0; min-height: var(--control-height); max-width: 100%; }
+input, select, textarea { padding: 8px 10px; width: 100%; min-width: 0; }
+select { text-overflow: ellipsis; }
+button { padding: 8px 12px; cursor: pointer; }
+button:disabled, select:disabled { color: var(--faint); cursor: default; }
+button[aria-pressed="true"], button.pressed { border-color: var(--teal); color: var(--teal); }
+/* A small square button inside a row, such as a remove button. 44 px on touch. */
+button.mini { min-height: var(--mini-height); min-width: var(--mini-height); padding: 0 8px; font-size: 13px; line-height: 1; }
+/* A fix link or any action that reads as a link: teal, underlined, no box. */
+button.link, .fix { border: 0; min-height: 24px; padding: 0; background: none; color: var(--teal); text-decoration: underline; text-underline-offset: 4px; font-size: 13px; text-align: left; }
+@media (pointer: coarse) { button.mini { min-height: var(--control-height); min-width: var(--control-height); } button.link, .fix { min-height: var(--control-height); } }
+
+/* A section heading with an optional count and a control pushed right. */
+.section-heading { font-size: 14px; font-weight: 600; margin: 18px 0 6px; display: flex; align-items: center; gap: 8px; }
+.section-heading .count { font-weight: 400; font-size: 13px; }
+.section-heading .push { margin-left: auto; }
+
+/* A fact with its type: name left, type right, both monospace. Add .lit for
+   the highlighted fact, .pending for one about to be added. */
+.fact-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.fact-row .fact-name { font: 12px var(--mono); overflow-wrap: anywhere; min-width: 0; }
+.fact-row .fact-type, .fact-type { font: 11px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.fact-row .fact-type { margin-left: auto; text-align: right; flex: none; overflow-wrap: normal; white-space: nowrap; }
+.lit, .lit .fact-name, .lit .fact-type { color: var(--teal); }
+
+/* Pending: something that would happen. Teal, with a real "+ " in the text for
+   screen readers and colour-blind users. .target adds the dashed outline that
+   always means "this would happen here". */
+.pending, .pending .fact-name, .pending .fact-type { color: var(--teal); }
+.target { outline: 1px dashed var(--teal); outline-offset: 2px; }
+/* Not a valid target while a fact is held, or otherwise out of play. */
+.dim { opacity: .35; }
+
+/* Problem rows: a 2 px left rule in the state's colour, text in plain white. */
+.row-error, .row-warning, .row-refused { border-left: 2px solid var(--red); padding: 2px 0 6px 14px; font-size: 13px; }
+.row-warning, .row-refused { border-left-color: var(--amber); }
+.text-error { color: var(--red); }
+.text-warning, .text-refused { color: var(--amber); }
+.text-teal { color: var(--teal); }
+.fixes { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 4px; }
+
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* ---- Shell layout ------------------------------------------------------- */
+
+.boot { padding: 24px var(--gutter); }
+.app { height: 100dvh; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; padding: 0 var(--gutter); max-width: 1580px; margin: auto; }
+.masthead { display: flex; align-items: flex-end; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--rule); }
+.masthead .title { margin-right: auto; display: flex; align-items: baseline; gap: 14px; min-width: 0; flex-wrap: wrap; }
+.masthead #files { font-size: 13px; }
+.masthead .find { width: 250px; }
+.masthead .scenario { width: 216px; }
+.history-buttons { display: flex; gap: 8px; }
+.summary { display: flex; flex-wrap: wrap; gap: 6px 24px; margin: 0; padding: 10px 0; border-bottom: 1px solid var(--rule-soft); font-size: 13px; }
+.summary span { overflow-wrap: anywhere; }
+
+.workspace { display: grid; grid-template-columns: var(--facts-width) minmax(0, 1fr) var(--rule-width); min-height: 0; }
+.workspace.facts-collapsed { grid-template-columns: var(--control-height) minmax(0, 1fr) var(--rule-width); }
+.workspace.rule-collapsed { grid-template-columns: var(--facts-width) minmax(0, 1fr) var(--control-height); }
+.workspace.facts-collapsed.rule-collapsed { grid-template-columns: var(--control-height) minmax(0, 1fr) var(--control-height); }
+.column { min-width: 0; min-height: 0; }
+#facts-column { border-right: 1px solid var(--rule); }
+#facts-column .column-body { height: 100%; overflow-y: auto; padding: 0 14px 16px 0; scrollbar-width: thin; }
+#middle-column { display: flex; flex-direction: column; padding: 12px 20px 0; }
+#middle-column > * { flex: 1; min-height: 0; }
+#rule-column { border-left: 1px solid var(--rule); }
+#rule-column .column-body { height: 100%; overflow-y: auto; padding: 14px 0 16px 20px; scrollbar-width: thin; }
+.column-strip { width: 100%; height: 100%; border: 0; writing-mode: vertical-rl; font-size: 14px; font-weight: 600; padding: 12px 0; }
+.workspace.facts-collapsed #facts-column .column-body, .workspace.rule-collapsed #rule-column .column-body { display: none; }
+
+.tabs { display: flex; gap: 18px; margin-top: 4px; border-bottom: 1px solid var(--rule-soft); }
+.tabs button { border: 0; border-bottom: 2px solid transparent; padding: 8px 0; font-size: 14px; font-weight: 600; min-height: var(--control-height); }
+.tabs button[aria-selected="true"] { border-bottom-color: var(--fg); }
+
+.status { border-top: 1px solid var(--rule); padding: 8px 0; font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 20px; align-items: center; min-height: 52px; }
+.status-message, .status-side { display: flex; flex-wrap: wrap; gap: 4px 20px; min-width: 0; }
+.status-message > *, .status-side > * { min-width: 0; overflow-wrap: anywhere; }
+.status-side { margin-left: auto; }
+.status button.link { min-height: 36px; }
+
+.keys { background: var(--bg); color: var(--fg); border: 1px solid var(--edge); padding: 16px 20px 20px; width: min(640px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); }
+.keys::backdrop { background: rgb(0 0 0 / .7); }
+.keys-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+.keys h2 { color: var(--fg); font-size: 18px; }
+.keys table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.keys th { text-align: left; font-weight: 600; padding: 6px 12px 6px 0; border-bottom: 1px solid var(--rule); }
+.keys td { padding: 6px 12px 6px 0; border-bottom: 1px solid var(--rule-soft); vertical-align: top; overflow-wrap: anywhere; }
+.keys td:first-child { white-space: nowrap; }
+.keys td:last-child { color: var(--muted); }
+
+/* Below 1100 px: one column. The list view replaces the canvas, the list
+   region opens the rule detail under the selected rule, and the Facts column
+   follows. Nothing scrolls sideways; long names wrap. */
+@media (max-width: 1100px) {
+  :root { --gutter: 16px; }
+  .app { height: auto; min-height: 100dvh; display: block; }
+  .masthead { flex-wrap: wrap; gap: 10px 12px; padding-top: 12px; }
+  .masthead .title { width: 100%; }
+  .masthead .find, .masthead .scenario { width: auto; flex: 1 1 130px; min-width: 0; }
+  .summary { gap: 4px 16px; }
+  .workspace, .workspace.facts-collapsed, .workspace.rule-collapsed, .workspace.facts-collapsed.rule-collapsed { display: flex; flex-direction: column; }
+  #middle-column { order: 1; padding: 12px 0 0; }
+  #rule-column { order: 2; border-left: 0; }
+  #facts-column { order: 3; border-right: 0; border-top: 1px solid var(--rule); margin-top: 16px; }
+  #facts-column .column-body, #rule-column .column-body { display: block !important; height: auto; overflow: visible; padding: 0; }
+  #rule-column .column-body { padding-top: 14px; }
+  .column-strip { display: none; }
+  .status { position: sticky; bottom: 0; background: var(--bg); z-index: 1; }
+}
