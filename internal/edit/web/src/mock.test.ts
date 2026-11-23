@@ -97,11 +97,15 @@ test('the computed check is clean on the fixture and reports a hand-made cycle',
     model: () => {}, history: () => {}, values: () => {}, connection: () => {},
     check: check => checks.push({ ok: check.ok, kinds: check.diagnostics.map(d => d.kind) }),
   });
-  await new Promise(resolve => setTimeout(resolve, 20));
+  // Wait for the events rather than a fixed time: parallel test processes can delay a 0 ms timer.
+  const settled = async (count: number) => {
+    for (const deadline = Date.now() + 1000; checks.length < count && Date.now() < deadline;) await new Promise(resolve => setTimeout(resolve, 5));
+  };
+  await settled(1);
   assert.deepEqual(checks, [{ ok: true, kinds: [] }]);
   const capped = api.current().rules.find(r => r.id === 'CappedBonus')!;
   api.simulateDiskEdit('CappedBonus', capped.source.replace('employeeBudgetCents uint64)', 'employeeBudgetCents uint64, finalBonusCents uint64)'));
-  await new Promise(resolve => setTimeout(resolve, 20));
+  await settled(2);
   assert.equal(checks.at(-1)!.ok, false);
   assert.ok(checks.at(-1)!.kinds.includes('cycle'));
 });

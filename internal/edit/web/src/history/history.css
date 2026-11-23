@@ -1,5 +1,20 @@
-/* History tab stub. */
+/* History tab, as in mockup 06: newest first, a teal rule on the current
+   entry, an amber rule on outside edits, entries that can no longer be undone
+   dimmed. Every state is also written out in words. */
+.history-empty { font-size: 13px; margin-top: 12px; }
 .history-list { list-style: none; margin: 10px 0 0; padding: 0; font-size: 13px; }
-.history-list li { padding: 9px 0; border-bottom: 1px solid var(--rule-soft); }
-.history-list li > span { display: block; }
-.history-list .history-files { font-size: 11px; color: var(--muted); }
+.history-list > li { padding: 9px 0; border-bottom: 1px solid var(--rule-soft); min-width: 0; overflow-wrap: anywhere; }
+.history-list > li > span { display: block; }
+.history-list .history-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.history-list .history-marks { font-size: 12px; margin-top: 2px; }
+.history-list .history-action { font-size: 12px; margin-top: 4px; }
+.history-list > li.current { border-left: 2px solid var(--teal); padding-left: 10px; }
+.history-list > li.disk { border-left: 2px solid var(--amber); padding-left: 10px; }
+.history-list > li.disk .history-label { color: var(--amber); }
+.history-list > li.blocked .history-label, .history-list > li.blocked .history-meta { opacity: .55; }
+.history-list > li.undone .history-label { text-decoration: line-through; text-decoration-color: var(--faint); }
+.history-list > li.undone .history-label, .history-list > li.undone .history-meta { color: var(--faint); }
+.history-list > li.history-cursor { font-size: 12px; padding: 4px 0; border-bottom: 1px dashed var(--teal); color: var(--teal); }
+@media (pointer: coarse), (max-width: 1100px) {
+  .history-list .history-action { min-height: var(--control-height); }
+}

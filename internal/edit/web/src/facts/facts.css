@@ -1,7 +1,28 @@
-/* Facts column stub. */
-#facts-root .section-heading:first-child { margin-top: 12px; }
+/* Facts column: three sections of fact rows. Rows are dense, as in the
+   viewer; the remove button shows on hover and focus with a fine pointer and
+   always with a coarse one. */
+#facts-root .facts-section:first-of-type .section-heading { margin-top: 12px; }
+#facts-root .section-heading .push { margin-left: auto; }
+.facts-section.target { outline-offset: 0; }
+.facts-hint, .facts-note { font-size: 12px; margin: 0 0 6px; overflow-wrap: anywhere; }
 .fact-list { list-style: none; margin: 0; padding: 0; }
-.fact-list li { border-bottom: 1px solid #1c1c1c; }
-.fact-list button.fact-row { width: 100%; border: 0; min-height: 28px; padding: 2px 0; text-align: left; cursor: grab; }
-.fact-list button.fact-row[aria-pressed="true"] { outline: 1px dashed var(--teal); outline-offset: -1px; }
-@media (pointer: coarse) { .fact-list button.fact-row { min-height: var(--control-height); } }
+.fact-list > li { border-bottom: 1px solid #1c1c1c; min-width: 0; }
+.fact-list > li.lit { border-bottom-color: var(--teal); }
+.fact-list .fact-line { display: flex; align-items: center; min-width: 0; position: relative; }
+.fact-list button.fact-row { flex: 1; min-width: 0; border: 0; min-height: 23px; padding: 2px 0; text-align: left; cursor: grab; background: none; }
+.fact-list button.fact-row.held { outline: 1px dashed var(--teal); outline-offset: -1px; padding-inline: 4px; }
+.fact-list .fact-held { font: 11px var(--sans); color: var(--teal); flex: none; }
+.fact-list > li.lit .fact-name, .fact-list > li.lit .fact-type { color: var(--teal); }
+.fact-list button.fact-remove { position: absolute; right: 0; top: 50%; translate: 0 -50%; min-height: 22px; min-width: 22px; visibility: hidden; }
+.fact-list > li:hover button.fact-remove, .fact-list > li:focus-within button.fact-remove { visibility: visible; }
+.fact-list .fact-problem { margin: 0 0 6px; font-size: 12px; overflow-wrap: anywhere; }
+.fact-list .inline-form { padding: 4px 0 8px; }
+.facts-form { display: grid; gap: 4px; padding: 4px 0 10px; }
+.facts-form label { margin: 4px 0 0; font-size: 12px; }
+.facts-form input { min-height: 36px; font: 12px var(--mono); }
+.facts-host .combo { margin-bottom: 8px; }
+@media (pointer: coarse), (max-width: 1100px) {
+  .fact-list button.fact-row { min-height: var(--control-height); align-items: center; }
+  .fact-list button.fact-remove { position: static; translate: none; flex: none; margin-left: 8px; visibility: visible; min-height: var(--control-height); min-width: var(--control-height); }
+  .facts-form input { min-height: var(--control-height); }
+}

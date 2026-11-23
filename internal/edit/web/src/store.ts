@@ -4,7 +4,7 @@
 // click, keyboard) and every server call. README.md has a worked example.
 import type { Api, Connection, Result } from './api';
 import {
-  addReadOp, deriveGraph, opRule, sameOp, verdict, verdictMessage, verdicts, wireKey,
+  addReadOp, deriveGraph, opRule, renamedRule, sameOp, verdict, verdictMessage, verdicts, wireKey,
   type Graph, type Verdict, type Wire,
 } from './derive';
 import type {
@@ -417,7 +417,7 @@ export class Store {
     const next: Partial<State> = {
       model, graph,
       selection: {
-        rule: selection.rule && graph.rules.has(selection.rule) ? selection.rule : renamedRule(this.#state.model, model, selection.rule) ?? defaultRule(model),
+        rule: (selection.rule && renamedRule(this.#state.graph, graph, selection.rule)) ?? defaultRule(model),
         ...(selection.fact && graph.facts.has(selection.fact) ? { fact: selection.fact } : {}),
         ...(wire ? { wire } : {}),
       },
@@ -451,18 +451,6 @@ function noticeFor(result: Exclude<Result<unknown>, { kind: 'ok' }>): Notice {
 function defaultRule(model: Model): string | undefined {
   const first = model.outputs.fields[0]?.fact;
   return model.rules.find(rule => rule.produces.some(fact => fact.name === first))?.id ?? model.rules[0]?.id;
-}
-
-/**
- * The new id of a rule that a model change renamed: a rule the old model did
- * not have, in the same file, whose func line is where the old rule's was. Lets
- * the selection follow a rename made in the code pane, the sheet, or an IDE.
- */
-function renamedRule(previous: Model, model: Model, id: string | undefined): string | undefined {
-  const old = id ? previous.rules.find(rule => rule.id === id) : undefined;
-  if (!old) return undefined;
-  const known = new Set(previous.rules.map(rule => rule.id));
-  return model.rules.find(rule => !known.has(rule.id) && rule.file === old.file && rule.line === old.line)?.id;
 }
 
 // ---- Selectors. Pure functions of State that several regions need. ---------

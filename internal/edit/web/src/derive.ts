@@ -225,6 +225,20 @@ export function suggestedResult(ruleName: string): string {
   return ruleName.charAt(0).toLowerCase() + ruleName.slice(1);
 }
 
+/**
+ * The id a rule has after a model change that may have renamed it: the same id
+ * if it still exists, else the one new rule at the same file and line (a
+ * rename keeps the declaration in place). Undefined when it was deleted.
+ * The store uses it so a renamed rule stays selected through undo and redo.
+ */
+export function renamedRule(before: Graph, after: Graph, id: string): string | undefined {
+  if (after.rules.has(id)) return id;
+  const old = before.rules.get(id);
+  if (!old) return undefined;
+  const moved = [...after.rules.values()].filter(rule => !before.rules.has(rule.id) && rule.file === old.file && rule.line === old.line);
+  return moved.length === 1 ? moved[0]!.id : undefined;
+}
+
 /** The rule an operation edits, when it targets exactly one. */
 export function opRule(op: Op): string | undefined {
   return 'rule' in op ? op.rule : undefined;

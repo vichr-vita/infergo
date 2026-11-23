@@ -1,11 +1,43 @@
-/* List view stub. */
-#list-root { overflow-y: auto; }
-.list-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* List view: one bordered block per rule in dependency order, as the viewer's
+   phone layout. The selected item has a 2 px teal border; on a phone it holds
+   the sheet and the code pane. While a fact is held, items that can take it
+   get the dashed outline and the rest dim, each with a line saying so. */
+#list-root { overflow-y: auto; min-width: 0; }
+.list-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.list-heading .section-heading { margin: 0; }
+.list-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.list-form-host:empty { display: none; }
+.list-form { border: 2px solid var(--teal); padding: 10px 12px 12px; margin-bottom: 12px; display: grid; gap: 4px; font-size: 13px; min-width: 0; }
+.list-form label { margin: 6px 0 2px; font-size: 13px; }
+.list-form input { font: 12px var(--mono); min-height: 36px; }
+.list-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 120px); gap: 8px; }
+.list-form .inline-actions { margin-top: 8px; }
+.list-form button.primary { border-color: var(--teal); color: var(--teal); }
+.list-reads { font: 12px var(--mono); margin: 6px 0 0; overflow-wrap: anywhere; }
+
 .rule-list { list-style: none; margin: 0; padding: 0; }
-.rule-list > li { border: 1px solid var(--edge); padding: 12px 14px; margin-bottom: 12px; min-width: 0; }
+.rule-list > li { border: 1px solid var(--edge); padding: 12px 14px; margin-bottom: 12px; min-width: 0; cursor: pointer; }
+.rule-list > li:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
 .rule-list > li.selected { border: 2px solid var(--teal); padding: 11px 13px; }
-.rule-list .rule-name { border: 0; padding: 0; font: 600 14px/1.5 var(--mono); text-align: left; overflow-wrap: anywhere; }
-.rule-list .rule-name[aria-current="true"] { color: var(--teal); }
+.rule-list > li.expanded { cursor: default; }
+.rule-list > li.target { outline: 1px dashed var(--teal); outline-offset: -5px; }
+.rule-list > li.aimed { border-color: var(--teal); }
+.rule-list .rule-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
+.rule-list .rule-name { font: 600 14px/1.5 var(--mono); overflow-wrap: anywhere; min-width: 0; }
+.rule-list > li.selected .rule-name { color: var(--teal); }
+.rule-list .rule-problems { font-size: 12px; }
+.rule-list .rule-problems:empty { display: none; }
 .rule-list p { font-size: 13px; overflow-wrap: anywhere; }
-.rule-list .rule-io { font-size: 12px; }
-.rule-list > li > .rule-detail { margin-top: 14px; border-top: 1px solid var(--rule-soft); padding-top: 12px; }
+.rule-list .rule-io { font: 12px var(--mono); }
+.rule-list .rule-gesture { font-size: 12px; }
+.rule-list .rule-host:empty { display: none; }
+.rule-list .rule-host { margin-top: 8px; }
+.rule-list > li > .rule-detail { margin-top: 4px; }
+.rule-list > li:not(.expanded) > .rule-detail { margin-top: 14px; border-top: 1px solid var(--rule-soft); padding-top: 12px; }
+@media (pointer: coarse), (max-width: 1100px) {
+  .list-form input { min-height: var(--control-height); font-size: 16px; }
+  .list-form button.mini { min-height: var(--control-height); }
+}
+@media (max-width: 420px) {
+  .list-pair { grid-template-columns: minmax(0, 1fr); }
+}
