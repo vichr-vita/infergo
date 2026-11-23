@@ -1,5 +1,5 @@
 // Undo, redo, and the History tab. Undo must write back the exact bytes.
-const { test, expect, fit, factRow, pickUp, moveOver, moveOverEmptyCanvas, nodeBox, selectRule, dragFactOntoRule, receipt, typeInDeclaration } = require('./editor-fixture.cjs');
+const { test, expect, fit, factRow, pickUp, moveOver, moveOverEmptyCanvas, nodeBox, selectRule, showRule, dragFactOntoRule, receipt, typeInDeclaration } = require('./editor-fixture.cjs');
 
 test.describe.configure({ timeout: 90_000 });
 
@@ -85,7 +85,7 @@ test('item 10: undo and redo restore exact bytes for wiring, unwiring, renaming,
 test('item 10: undoing a type fix and a cycle fix restores the file', async ({ app: page, editor }) => {
   const good = editor.read();
   editor.editOutside('bonus.go', 'func FinanceRequired(cappedBonusCents uint64)', 'func FinanceRequired(cappedBonusCents uint32)');
-  await fit(page);
+  await showRule(page, 'FinanceRequired');
   await page.locator('#graph-root .graph-fix', { hasText: 'Use uint64 in FinanceRequired' }).click();
   await expect.poll(() => editor.read()).toBe(good);
   await page.locator('#undo').click();

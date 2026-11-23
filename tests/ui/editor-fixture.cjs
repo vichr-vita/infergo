@@ -180,6 +180,19 @@ async function selectRule(page, rule) {
   await expect(page.locator('#sheet-root .sheet-name')).toHaveText(`${rule}()`);
 }
 
+/**
+ * Selects a rule and shows it at Actual size, centred, the way a person reads one in detail.
+ * Below a zoom of 0.75 nodes draw only their names, so fact rows, fix links, and most wire labels
+ * are hidden there. The rule is selected on the zoomed-out map, where every node is in reach,
+ * then Actual size centres the view on it.
+ */
+async function showRule(page, rule) {
+  await selectRule(page, rule);
+  const actual = page.getByRole('button', { name: 'Actual size' });
+  await actual.click();
+  await expect(actual).toHaveAttribute('aria-pressed', 'true');
+}
+
 /** Drags a fact from the Facts column onto a rule and releases it. */
 async function dragFactOntoRule(page, fact, rule) {
   await pickUp(page, factRow(page, fact));
@@ -236,5 +249,5 @@ const test = base.extend({
 
 module.exports = {
   test, expect, startEditor, repoRoot, workRoot, changedLines, commentLines, fit, factRow, pickUp, moveOver,
-  moveOverEmptyCanvas, nodeBox, clickRuleName, selectRule, dragFactOntoRule, receipt, typeInDeclaration, expectFits,
+  moveOverEmptyCanvas, nodeBox, clickRuleName, selectRule, showRule, dragFactOntoRule, receipt, typeInDeclaration, expectFits,
 };
