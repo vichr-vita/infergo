@@ -191,11 +191,8 @@ test('contracts: adding an input and requesting an output by drop edit the struc
   expect(editor.read('facts.go')).toBe(before);
 });
 
-// The Add input form has a Go type field with a datalist. In Playwright's
-// WebKit, Enter in that field does not submit the form, although the Add input
-// button does. Chromium submits.
-test('contracts: Enter in the Go type field submits the Add input form', async ({ app: page, editor, browserName }) => {
-  test.fixme(browserName === 'webkit', 'Enter in the datalist-backed Go type field does not submit the form in WebKit');
+// WebKit does not submit a form from a field with a datalist on its own.
+test('contracts: Enter in the Go type field submits the Add input form', async ({ app: page, editor }) => {
   await page.locator('#facts-root .facts-inputs button[aria-label="Add input"]').click();
   await page.locator('#facts-root .facts-host input').first().fill('loyaltyYears');
   await page.locator('#facts-root .facts-host input').nth(1).fill('uint8');

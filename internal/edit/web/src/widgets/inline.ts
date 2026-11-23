@@ -141,3 +141,20 @@ export function inlineConfirm(options: ConfirmOptions): { element: HTMLElement; 
   });
   return { element, focus: () => no.focus(), close: () => close('cancelled') };
 }
+
+/**
+ * Makes Enter submit a form from a field that has a datalist. WebKit does not
+ * submit from such a field, so when no submit follows the key, one is requested.
+ */
+export function submitOnEnter(field: HTMLInputElement, form: HTMLFormElement) {
+  field.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' || event.isComposing) return;
+    let submitted = false;
+    const mark = () => { submitted = true; };
+    form.addEventListener('submit', mark, { once: true });
+    setTimeout(() => {
+      form.removeEventListener('submit', mark);
+      if (!submitted && form.isConnected) form.requestSubmit();
+    });
+  });
+}

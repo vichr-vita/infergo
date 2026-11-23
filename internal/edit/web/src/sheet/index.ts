@@ -14,7 +14,7 @@ import type { Region } from '../region';
 import { diagnosticsFor, pendingRead, shownRule, type State } from '../store';
 import { applyAndSettle, failureText, fixButton, plainKey, previewWhileAimed, typingTarget } from '../widgets/actions';
 import { combobox, type Combobox } from '../widgets/combobox';
-import { inlineConfirm, inlineName, uniqueId } from '../widgets/inline';
+import { inlineConfirm, inlineName, submitOnEnter, uniqueId } from '../widgets/inline';
 import { factNameProblem, modelTypes, requirementIsEmpty, ruleNameProblem, typeProblem, withLeadingName } from '../widgets/names';
 import { originText, readOptions } from '../widgets/pickers';
 
@@ -381,6 +381,7 @@ export const mount: Region = (root, store, shell) => {
         h('div', {}, h('label', { for: nameId }, 'Result name'), name),
         h('div', {}, h('label', { for: typeId }, 'Go type'), type)),
       h('span', { class: 'inline-actions' }, h('button', { type: 'submit', class: 'mini' }, 'Add result'), cancel), message);
+    submitOnEnter(type, form);
     let previewed: Op | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const valid = () => !factNameProblem(name.value.trim(), store.state.graph) && !typeProblem(type.value.trim());

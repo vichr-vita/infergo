@@ -82,10 +82,9 @@ test('item 6: a cycle shows on every rule on it, and a fix link removes one wire
   expect(editor.read()).toBe(good);
 });
 
-// The design says every wire on a cycle turns red. The cycle diagnostic lists
-// its rules in reads order (CappedBonus, ApprovalsSatisfied, FinanceRequired),
-// and the graph pairs consecutive rules as producer then reader, so it finds no wire.
-test.fixme('item 6: every wire on a cycle turns red', async ({ app: page, editor }) => {
+// The compiler lists a cycle's rules in reads order (CappedBonus,
+// ApprovalsSatisfied, FinanceRequired), the reverse of the wires' direction.
+test('item 6: every wire on a cycle turns red', async ({ app: page, editor }) => {
   editor.editOutside('bonus.go', 'func CappedBonus(eligibleBonusCents uint64, employeeBudgetCents uint64)', 'func CappedBonus(eligibleBonusCents uint64, employeeBudgetCents uint64, approvalsSatisfied bool)');
   await expect(summary(page)).toContainText('1 error');
   for (const wire of ['CappedBonus>cappedBonusCents>FinanceRequired', 'FinanceRequired>financeRequired>ApprovalsSatisfied', 'ApprovalsSatisfied>approvalsSatisfied>CappedBonus']) {

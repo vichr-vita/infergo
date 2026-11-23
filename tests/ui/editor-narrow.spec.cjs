@@ -76,9 +76,8 @@ test.describe('long names at 320 px', () => {
     await expectFits(page);
   });
 
-  // The picker's label reads "Add read to <rule name>" and does not wrap, so a
-  // long rule name pushes it and its Close button past the right edge.
-  test.fixme('item 12: the Add read picker fits when the rule has a long name', async ({ app: page, editor }) => {
+  // The picker's label reads "Add read to <rule name>" and must wrap.
+  test('item 12: the Add read picker fits when the rule has a long name', async ({ app: page, editor }) => {
     renameToLong(editor);
     await page.locator(`#list-root li[data-key="${long}"] .rule-summary`).click();
     await page.getByRole('button', { name: 'Add read' }).click();

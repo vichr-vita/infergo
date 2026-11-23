@@ -13,7 +13,7 @@ import type { Region } from '../region';
 import { matchesQuery, type State } from '../store';
 import { applyAndSettle, failureText, fixButton, plainKey, previewWhileAimed } from '../widgets/actions';
 import { combobox, type Combobox } from '../widgets/combobox';
-import { inlineName, uniqueId } from '../widgets/inline';
+import { inlineName, submitOnEnter, uniqueId } from '../widgets/inline';
 import { factNameProblem, modelTypes, typeProblem } from '../widgets/names';
 import { requestOptions } from '../widgets/pickers';
 
@@ -284,6 +284,7 @@ export const mount: Region = (root, store, shell) => {
       inputs.add!.setAttribute('aria-expanded', 'false');
       if (focusOpener) inputs.add!.focus();
     };
+    submitOnEnter(type, form);
     form.addEventListener('submit', async event => {
       event.preventDefault();
       const fact = name.value.trim();

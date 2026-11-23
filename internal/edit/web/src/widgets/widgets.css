@@ -12,7 +12,8 @@ button.mini { white-space: nowrap; }
 
 .combo { border: 1px solid var(--teal); padding: 8px 10px 10px; min-width: 0; }
 .combo-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.combo-head label { margin: 0; }
+.combo-head label { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.combo-head button { flex: none; }
 .combo input { margin-top: 6px; min-height: 36px; font: 12px var(--mono); }
 .combo-list { list-style: none; margin: 6px 0 0; padding: 0; max-height: min(320px, 50dvh); overflow-y: auto; scrollbar-width: thin; }
 .combo-option { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 5px 4px; border-bottom: 1px solid var(--rule-soft); cursor: pointer; min-width: 0; }
