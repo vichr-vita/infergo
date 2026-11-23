@@ -577,3 +577,31 @@ func isRefusal(err error, reason string) bool {
 	refusal, ok := protocol.AsRefusal(err)
 	return ok && refusal.Reason == reason
 }
+
+func TestWatcherSeesNewAndDeletedFiles(t *testing.T) {
+	dir := bonusModule(t)
+	w := open(t, dir)
+	extra := filepath.Join(dir, "extra.go")
+	writeFile(t, extra, "package bonus\n\nconst extra = 1\n")
+	history := waitForEntries(t, w, 1)
+	if got := history.Entries[0].Files; len(got) != 1 || got[0] != (protocol.ReceiptFile{Path: "extra.go", Added: 3}) {
+		t.Fatalf("new file entry = %+v", got)
+	}
+	// The evaluator and files the go tool skips are not source.
+	writeFile(t, filepath.Join(dir, "zz_infergo_gen.go"), "package bonus\n")
+	writeFile(t, filepath.Join(dir, ".scratch.go"), "package bonus\n")
+	if err := os.Remove(extra); err != nil {
+		t.Fatal(err)
+	}
+	history = waitForEntries(t, w, 2)
+	if got := sources(history); got != "disk:extra.go disk:extra.go" || history.Entries[1].Files[0].Removed != 3 {
+		t.Fatalf("history = %s %+v", got, history.Entries[1])
+	}
+	// Undoing the deletion brings the file back.
+	if _, err := w.Undo(); err != nil {
+		t.Fatal(err)
+	}
+	if readFile(t, extra) != "package bonus\n\nconst extra = 1\n" {
+		t.Fatal("undo did not restore the deleted file")
+	}
+}
