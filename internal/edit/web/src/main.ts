@@ -12,6 +12,7 @@ import { mount as mountList } from './list/index';
 import { mount as mountSheet } from './sheet/index';
 import { verdictMessage } from './derive';
 import { h, holdsFocus, setText } from './dom';
+import { installPointerWiring } from './drag';
 import type { Region, Shell } from './region';
 import { canRedo, canUndo, checkPending, problemCounts, validTargets, Store, type State } from './store';
 
@@ -62,6 +63,7 @@ export async function start(api: Api): Promise<Store | undefined> {
     ['list', mountList], ['sheet', mountSheet], ['code', mountCode],
   ];
   for (const [name, mount] of regions) mount(required(`[data-region="${name}"]`, HTMLElement), store, shell);
+  installPointerWiring(store);
 
   renderHeader(store);
   renderSummary(store);
