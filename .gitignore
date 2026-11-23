@@ -4,3 +4,4 @@ playwright-report/
 .view-test/
 internal/edit/web/dev/
 internal/edit/web/.test/
+.edit-test/

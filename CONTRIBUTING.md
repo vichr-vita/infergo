@@ -36,18 +36,27 @@ make check
 git diff --check
 ```
 
-`make check` runs `make check-go` and `make check-viewer`. The Go checks verify
-formatting, that `go.mod` is tidy, `go vet`, that the generated output is
-current, and the tests with the race detector. The viewer check type-checks the
-viewer and verifies that the committed bundle is current. `git diff --check`
-depends on what is staged, so run it yourself.
+`make check` runs `make check-go`, `make check-viewer`, and `make check-editor`.
+The Go checks verify formatting, that `go.mod` is tidy, `go vet`, that the
+generated output is current, and the tests with the race detector. The viewer
+check type-checks the viewer and verifies that the committed bundle is current.
+The editor check does the same for the editor page and also runs its unit tests.
+`git diff --check` depends on what is staged, so run it yourself.
 
 Review changes to `ruleset/bonus/zz_infergo_gen.go` whenever you change emission
 or the example's graph. Commit generated changes alongside their source. The
 staleness check in `make check-go` writes nothing and fails if the generated
 file differs from what the generator would produce.
 
-Viewer changes also need the browser tests, which require Playwright browsers:
+The editor page in `internal/edit/web` is TypeScript that builds into the
+committed `editor.js` and `editor.css`. After changing its sources, run
+`npm run build:editor` and commit the rebuilt files with them. `make
+check-editor` fails until you do. The
+[page README](internal/edit/web/README.md) explains how to run the page against
+a mock server while you work on it.
+
+Viewer and editor changes also need the browser tests, which require Playwright
+browsers and Go:
 
 ```sh
 npx playwright install chromium webkit
@@ -60,9 +69,12 @@ Where Playwright cannot install them, `npx playwright test --project=chromium`
 runs the Chromium half, and CI still covers WebKit.
 
 The CI workflow runs `make check` and `make test-ui`, which test the HTML viewer
-in Chromium and WebKit, including narrow mobile widths. Follow the [viewer
-development instructions](docs/visualization.md#maintain-the-viewer) when changing
-the viewer. A docs-only change should also check relative links, keep Go blocks
+and the editor in Chromium and WebKit, including narrow mobile widths. The editor
+tests build `infergen` once, then start `infergen edit` for every test on a fresh
+copy of the bonus ruleset in `.edit-test/` (ignored by Git), so they never touch
+`ruleset/bonus`. Set `INFERGEN_BIN` to run them against a prebuilt binary. Follow
+the [viewer development instructions](docs/visualization.md#maintain-the-viewer)
+when changing the viewer. A docs-only change should also check relative links, keep Go blocks
 gofmt clean, and compile any new complete Go examples.
 
 ## Choose the relevant tests
@@ -74,6 +86,9 @@ gofmt clean, and compile any new complete Go examples.
 | CLI | `go test ./cmd/infergen` | Flags, config discovery, precedence, help, check mode, `view`, and preserving existing output on errors. |
 | Bonus policy | `go test -race ./ruleset/bonus` | Fixed scenarios, arithmetic, boundaries, invalid values, and the runnable example. |
 | Viewer | `make test-ui` | Browser behavior in `tests/ui/viewer.spec.cjs`, including saved scenarios, source inspection, search, zoom, and mobile layouts. |
+| Editor page | `make check-editor` | Type-checking, bundle currency, and the unit tests of the store, the derivations, and the regions' pure logic. |
+| Editor server | `go test ./internal/edit/... ./cmd/infergen` | Protocol fixtures, the source rewriter, the workspace and history, the HTTP API, and the command. |
+| Editor in a browser | `make test-ui` | The tests in `tests/ui/editor-*.spec.cjs`: every gesture against real files, diagnostics and their fixes, undo, keyboard use, narrow widths, and the session token. |
 
 Generator tests create temporary Go modules and compile the emitted source. The
 main evaluator fixture runs its generated tests with `-race` as well. Keep tests
@@ -140,7 +155,8 @@ ordering promise.
 Use the [README](README.md) as the entry point. Keep detailed ruleset constraints
 in [Writing rulesets](docs/rulesets.md), CLI settings in the [generator
 reference](docs/generator.md), and execution semantics in the [runtime
-reference](docs/runtime.md). Link to those pages rather than duplicating full
+reference](docs/runtime.md), and the editor's gestures and keys in the [editor
+guide](docs/editor.md). Link to those pages rather than duplicating full
 reference material.
 
 Update examples and troubleshooting entries with behavior changes. Check links
