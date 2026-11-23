@@ -365,18 +365,19 @@ func (w *Workspace) step(undo bool) (protocol.Receipt, error) {
 		}
 		return protocol.Receipt{}, err
 	}
+	// The page says whether this was an undo or a redo, so the label stays the
+	// entry's own sentence. The files are cloned before the counts are swapped,
+	// because the journal keeps the entry.
 	receipt := entry.receipt
+	receipt.Files = slices.Clone(receipt.Files)
 	if undo {
 		w.journal.cursor--
-		receipt.Label = "Undo: " + receipt.Label
 		for i := range receipt.Files {
 			receipt.Files[i].Added, receipt.Files[i].Removed = receipt.Files[i].Removed, receipt.Files[i].Added
 		}
 	} else {
 		w.journal.cursor++
-		receipt.Label = "Redo: " + receipt.Label
 	}
-	receipt.Files = slices.Clone(receipt.Files)
 	w.journal.mergeKey = ""
 	w.changedLocked(true)
 	return receipt, nil

@@ -327,7 +327,7 @@ func TestUndoRestoresExactBytes(t *testing.T) {
 	if readFile(t, path) != original {
 		t.Fatal("undo did not restore the original bytes")
 	}
-	if !strings.HasPrefix(receipt.Label, "Undo: ") || w.History().Cursor != 0 {
+	if receipt.Label != w.History().Entries[0].Label || w.History().Cursor != 0 {
 		t.Fatalf("receipt %+v, cursor %d", receipt, w.History().Cursor)
 	}
 	if _, err := w.Redo(); err != nil {
