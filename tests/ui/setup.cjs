@@ -2,8 +2,10 @@ const { execFileSync } = require('node:child_process');
 const { readFileSync, writeFileSync } = require('node:fs');
 const { resolve } = require('node:path');
 const { buildSync } = require('esbuild');
+const { buildBinary } = require('./editor-binary.cjs');
 
 module.exports = () => {
+  buildBinary();
   execFileSync('go', ['run', './examples/bonus-viewer', '.view-test/bonus.html'], { stdio: 'inherit' });
   const html = readFileSync('.view-test/bonus.html', 'utf8');
   const marker = /(<script id="infergo-data" type="application\/json">)(.*?)(<\/script>)/s;

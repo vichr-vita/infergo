@@ -4,3 +4,8 @@ Copyright 2026 Vít Chrubasík
 The viewer includes code adapted from Inferrum under the Apache License 2.0.
 See viewer/LICENSE-Inferrum.txt. The generated viewer bundle also retains the
 license notices for its third-party layout dependencies.
+
+The editor page that infergen edit serves is a bundle that retains the license
+notices of its third-party dependencies, namely the CodeMirror and Lezer
+packages and their helpers, and Dagre with its graph library. The notices are
+in the header of internal/edit/web/editor.js.

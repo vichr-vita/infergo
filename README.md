@@ -25,6 +25,7 @@ Regenerate your evaluators after every upgrade.
 | Look up flags, configuration, and generation behavior | [Generator reference](docs/generator.md) |
 | Handle concurrency, errors, and cancellation | [Runtime and API reference](docs/runtime.md) |
 | Explore rule graphs, values, source, and saved scenarios | [Visualization guide](docs/visualization.md) |
+| Change rules by dragging facts on a graph (prototype) | [Editor guide](docs/editor.md) |
 | Understand the compiler and scheduler | [Architecture](docs/architecture.md) |
 | Follow the included 26-rule calculation | [Bonus example](docs/bonus-example.md) |
 | Diagnose generation and evaluation problems | [Troubleshooting](docs/troubleshooting.md) |
@@ -146,10 +147,19 @@ source, and switch scenarios. Generated rulesets expose `EvaluateTrace` for
 diagnostic snapshots and `ExportHTML` for offline viewers. See the
 [visualization guide](docs/visualization.md) for custom exports and API behavior.
 
+## Edit rules in the browser
+
+`go tool infergen edit --rules rules.go --open` serves a page on localhost that
+shows the rule graph beside the Go source. Drag a fact onto a rule to add a
+parameter, remove a wire to remove one, or type in the code pane and watch the
+graph follow. The Go files stay the only stored state. The editor is a
+prototype. See the [editor guide](docs/editor.md).
+
 ## License
 
 Copyright 2026 Vít Chrubasík.
 
 Infergo is licensed under the [Apache License 2.0](LICENSE). The viewer includes
 code adapted from Inferrum and third-party layout dependencies. Their license
-notices are retained in the viewer sources and generated bundle.
+notices are retained in the viewer sources and generated bundle. The editor
+bundle retains the notices of its CodeMirror and layout dependencies.

@@ -30,7 +30,9 @@ the root. The included bonus package uses `go run ../../cmd/infergen` in its
 generation directive.
 
 To see the rule graph without generating anything, use
-[`go tool infergen view`](#view-the-rule-graph).
+[`go tool infergen view`](#view-the-rule-graph). To change the rules by dragging
+facts on a graph, use `go tool infergen edit`, which the [editor
+guide](editor.md) describes.
 
 ## Flags and defaults
 
@@ -376,6 +378,7 @@ v0.1.1 differs from the rest of these docs in the following ways:
   the calling goroutine, and `recover` returns the original value, because
   `PanicError` does not exist.
 - There is no `view` command. It fails with `unknown command "view"`.
+- There is no `edit` command. It fails with `unknown command "edit"`.
 - There is no `--check` flag. It fails with `unknown flag: --check`.
   `INFERGEN_CHECK` is ignored, so the CI gate rewrites stale files and exits 0.
 - Generated code has no contract conversions, so a changed contract field does
