@@ -379,9 +379,12 @@ export class Store {
       }
     }));
     const result = await send();
+    // A code pane save that changes no bytes is refused by the server. That is
+    // not news, so the status line keeps what it shows.
+    const silent = result.kind === 'refused' && result.refusal.reason === 'exists' && op?.op === 'replace_source';
     this.#set({
       writing: this.#state.writing - 1,
-      notice: result.kind === 'ok' ? { kind: 'receipt', action, receipt: result.value.receipt } : noticeFor(result),
+      ...(silent ? {} : { notice: result.kind === 'ok' ? { kind: 'receipt', action, receipt: result.value.receipt } : noticeFor(result) }),
     });
     return result;
   }

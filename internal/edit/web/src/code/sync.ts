@@ -96,6 +96,8 @@ export function replied(sync: Sync, reply: Reply): Sync {
     case 'refused': {
       const { refusal } = reply;
       if (refusal.reason === 'stale_base') return rest; // settle sees the new hash and offers the choices
+      // The server refuses a write that changes no bytes: the text on disk is already this text, formatted.
+      if (refusal.reason === 'exists' && sent.text === sync.baseText) return { ...rest, formatted: true };
       if (refusal.reason === 'syntax_error') {
         const line = refusalLine(refusal.message);
         return { ...rest, problem: { kind: 'syntax', message: refusal.message, text: sent.text, ...(line ? { line } : {}) } };
