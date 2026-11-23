@@ -46,14 +46,17 @@ type settings struct {
 	Out     string
 	Check   bool
 	HTML    string
+	// Port and Scenarios are read only by edit.
+	Port      int
+	Scenarios string
 }
 
-// compile resolves the settings for command, compiles the ruleset, and prints its
-// warnings. It writes no files.
-func compile(config *viper.Viper, command *cobra.Command) (settings, generate.Result, error) {
+// resolveSettings reads the flags of command, the INFERGEN_ environment
+// variables, and the config file into settings, and checks the rule files.
+func resolveSettings(config *viper.Viper, command *cobra.Command) (settings, error) {
 	var options settings
 	if err := config.BindPFlags(command.Flags()); err != nil {
-		return options, generate.Result{}, err
+		return options, err
 	}
 	configFile := config.GetString("config")
 	if configFile != "" {
@@ -62,20 +65,30 @@ func compile(config *viper.Viper, command *cobra.Command) (settings, generate.Re
 	if err := config.ReadInConfig(); err != nil {
 		var missing viper.ConfigFileNotFoundError
 		if configFile != "" || !errors.As(err, &missing) {
-			return options, generate.Result{}, fmt.Errorf("read config: %w", err)
+			return options, fmt.Errorf("read config: %w", err)
 		}
 	}
 	if err := config.Unmarshal(&options); err != nil {
-		return options, generate.Result{}, fmt.Errorf("decode config: %w", err)
+		return options, fmt.Errorf("decode config: %w", err)
 	}
 	if len(options.Rules) == 0 {
-		return options, generate.Result{}, fmt.Errorf("rule files are required; set --rules, INFERGEN_RULES, or rules in a config file")
+		return options, fmt.Errorf("rule files are required; set --rules, INFERGEN_RULES, or rules in a config file")
 	}
 	for i := range options.Rules {
 		options.Rules[i] = strings.TrimSpace(options.Rules[i])
 		if options.Rules[i] == "" {
-			return options, generate.Result{}, fmt.Errorf("rule file names must not be empty")
+			return options, fmt.Errorf("rule file names must not be empty")
 		}
+	}
+	return options, nil
+}
+
+// compile resolves the settings for command, compiles the ruleset, and prints its
+// warnings. It writes no files.
+func compile(config *viper.Viper, command *cobra.Command) (settings, generate.Result, error) {
+	options, err := resolveSettings(config, command)
+	if err != nil {
+		return options, generate.Result{}, err
 	}
 	result, err := generate.Generate(generate.Config{
 		Dir: ".", RuleFiles: options.Rules, Inputs: options.Inputs,
@@ -140,8 +153,8 @@ func newCommandWithOpener(open func(path string) error) *cobra.Command {
 	}
 	addRulesetFlags(command)
 	command.Flags().Bool("check", false, "fail if the generated file is missing or out of date, and write nothing")
-	// view is the only listed subcommand. completion keeps working but stays out
-	// of --help, and help stays an unknown command.
+	// view and edit are the listed subcommands. completion keeps working but
+	// stays out of --help, and help stays an unknown command.
 	command.CompletionOptions.HiddenDefaultCmd = true
 	command.SetHelpCommand(&cobra.Command{Hidden: true})
 
@@ -206,6 +219,7 @@ func newCommandWithOpener(open func(path string) error) *cobra.Command {
 	view.Flags().String("html", "", "output .html or .htm file (default: infergo-<package>-<hash>.html in the system temporary directory)")
 	view.Flags().Bool("open", false, "open the HTML file with the platform's default application (command line only)")
 	command.AddCommand(view)
+	command.AddCommand(newEditCommand(config, open))
 	return command
 }
 
